@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clodbox"
+version = "0.1.0"
+description = "Run Claude Code in rootless containers with per-project isolation"
+requires-python = ">=3.11"
+dependencies = ["argcomplete>=3.0"]
+
+[project.scripts]
+clodbox = "clodbox.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov", "mypy", "ruff"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 99
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "integration: tests requiring a real container runtime (podman/docker)",
+]
+addopts = "-m 'not integration'"

@@ -1,0 +1,165 @@
+"""ContainerRuntime: detect podman/docker, pull/build/run images, list images."""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+from clodbox.errors import ContainerError
+
+
+# Map image name patterns to Containerfile suffixes.
+_IMAGE_CONTAINERFILE_MAP = {
+    "clodbox-base": "base",
+    "clodbox:latest": "base",
+    "clodbox-systems": "systems",
+    "clodbox-jvm": "jvm",
+    "clodbox-android": "android",
+    "clodbox-ndk": "ndk",
+    "clodbox-dotnet": "dotnet",
+    "clodbox-behemoth": "behemoth",
+}
+
+
+class ContainerRuntime:
+    """Wrapper around podman/docker CLI."""
+
+    def __init__(self, command: str | None = None) -> None:
+        if command:
+            self.cmd = command
+        else:
+            self.cmd = self._detect()
+
+    @staticmethod
+    def _detect() -> str:
+        env = os.environ.get("CLODBOX_DOCKER_CMD")
+        if env:
+            return env
+        for name in ("podman", "docker"):
+            path = shutil.which(name)
+            if path:
+                return path
+        raise ContainerError(
+            "No container runtime found. Install podman or docker."
+        )
+
+    # ------------------------------------------------------------------
+    # Image operations
+    # ------------------------------------------------------------------
+
+    def image_exists(self, image: str) -> bool:
+        result = subprocess.run(
+            [self.cmd, "image", "inspect", image],
+            capture_output=True,
+        )
+        return result.returncode == 0
+
+    def pull(self, image: str) -> bool:
+        """Pull *image* from registry. Returns True on success."""
+        result = subprocess.run(
+            [self.cmd, "pull", image],
+            capture_output=True,
+        )
+        return result.returncode == 0
+
+    def build(self, image: str, containerfile: Path, context: Path) -> None:
+        """Build *image* from *containerfile*. Raises ContainerError on failure."""
+        result = subprocess.run(
+            [self.cmd, "build", "-t", image, "-f", str(containerfile), str(context)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise ContainerError(
+                f"Failed to build image {image}:\n{result.stderr}"
+            )
+
+    def ensure_image(self, image: str, containers_dir: Path) -> None:
+        """Make sure *image* is available locally: inspect → pull → build fallback."""
+        if self.image_exists(image):
+            return
+
+        print(
+            f"Container image not found locally. Pulling {image}...",
+            file=sys.stderr,
+        )
+        if self.pull(image):
+            print("Image pulled successfully.", file=sys.stderr)
+            return
+
+        print("Pull failed. Attempting local build...", file=sys.stderr)
+        suffix = self._guess_containerfile(image)
+        if suffix is None:
+            raise ContainerError(
+                f"Container image not available and cannot determine Containerfile "
+                f"for: {image}"
+            )
+        containerfile = containers_dir / f"Containerfile.{suffix}"
+        if not containerfile.is_file():
+            raise ContainerError(
+                f"Container image not available and no local Containerfile found.\n"
+                f"Image: {image}"
+            )
+        self.build(image, containerfile, containers_dir)
+        print("Image built successfully.", file=sys.stderr)
+
+    @staticmethod
+    def _guess_containerfile(image: str) -> str | None:
+        for pattern, suffix in _IMAGE_CONTAINERFILE_MAP.items():
+            if pattern in image:
+                return suffix
+        return None
+
+    # ------------------------------------------------------------------
+    # Run
+    # ------------------------------------------------------------------
+
+    def run(
+        self,
+        image: str,
+        *,
+        project_path: Path,
+        dot_path: Path,
+        cfg_file: Path,
+        entrypoint: str | None = None,
+        cli_args: list[str] | None = None,
+    ) -> int:
+        """Run a container and return the exit code."""
+        cmd: list[str] = [
+            self.cmd, "run", "-it", "--rm", "--userns=keep-id",
+            "-v", f"{project_path}:/home/agent/workspace:Z,U",
+            "-w", "/home/agent/workspace",
+            "-v", f"{dot_path}:/home/agent/.claude:Z,U",
+            "-v", f"{cfg_file}:/home/agent/.claude.json:Z,U",
+        ]
+        if entrypoint:
+            cmd += ["--entrypoint", entrypoint]
+        cmd.append(image)
+        if cli_args:
+            cmd.extend(cli_args)
+
+        result = subprocess.run(cmd)
+        return result.returncode
+
+    # ------------------------------------------------------------------
+    # Listing
+    # ------------------------------------------------------------------
+
+    def list_local_images(self) -> list[tuple[str, str]]:
+        """Return local clodbox images as (repo:tag, size) tuples."""
+        result = subprocess.run(
+            [self.cmd, "images", "--format", "{{.Repository}}:{{.Tag}}\t{{.Size}}"],
+            capture_output=True,
+            text=True,
+        )
+        images: list[tuple[str, str]] = []
+        for line in result.stdout.splitlines():
+            if "clodbox" in line.lower():
+                parts = line.split("\t", 1)
+                repo = parts[0]
+                size = parts[1] if len(parts) > 1 else ""
+                images.append((repo, size))
+        return images
