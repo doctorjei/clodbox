@@ -24,9 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
             "run 'clodbox COMMAND --help' for subcommand-specific options"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--version", action="version", version=f"clodbox {__version__}"
+        add_help=False,
     )
 
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
@@ -78,9 +76,14 @@ def main(argv: list[str] | None = None) -> None:
 
     effective = list(argv if argv is not None else sys.argv[1:])
 
-    # Let --help and --version be handled by the top-level parser.
-    if effective and effective[0] in ("-h", "--help", "--version"):
-        args = parser.parse_args(effective)
+    # Handle top-level --help and --version before argparse dispatch
+    # (kept off the parser so they don't appear in tab-completion).
+    if effective and effective[0] in ("-h", "--help"):
+        parser.print_help()
+        sys.exit(0)
+    elif effective and effective[0] == "--version":
+        print(f"clodbox {__version__}")
+        sys.exit(0)
     else:
         # If the first arg isn't a known subcommand, default to "start".
         if not effective or effective[0] not in _SUBCOMMANDS:
