@@ -40,9 +40,9 @@ def build_parser() -> argparse.ArgumentParser:
     from clodbox.commands.config_cmd import add_parser as add_config_parser
     from clodbox.commands.image import add_parser as add_image_parser
     from clodbox.commands.archive import add_parser as add_archive_parser
-    from clodbox.commands.clean import add_parser as add_clean_parser
+    from clodbox.commands.clean import add_parser as add_purge_parser
     from clodbox.commands.restore import add_parser as add_restore_parser
-    from clodbox.commands.install import add_parser as add_install_parser
+    from clodbox.commands.install import add_parser as add_setup_parser
     from clodbox.commands.remove import add_parser as add_remove_parser
     from clodbox.commands.refresh_credentials import (
         add_parser as add_refresh_creds_parser,
@@ -54,9 +54,9 @@ def build_parser() -> argparse.ArgumentParser:
     add_config_parser(subparsers)
     add_image_parser(subparsers)
     add_archive_parser(subparsers)
-    add_clean_parser(subparsers)
+    add_purge_parser(subparsers)
     add_restore_parser(subparsers)
-    add_install_parser(subparsers)
+    add_setup_parser(subparsers)
     add_remove_parser(subparsers)
     add_refresh_creds_parser(subparsers)
 
@@ -65,13 +65,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 _SUBCOMMANDS = {
     "start", "shell", "resume", "config", "image",
-    "archive", "clean", "restore", "install", "remove",
-    "refresh-credentials",
+    "archive", "purge", "restore", "setup", "remove",
+    "refresh-creds",
 }
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
+
+    import argcomplete
+    argcomplete.autocomplete(parser)
+
     effective = list(argv if argv is not None else sys.argv[1:])
 
     # Let --help and --version be handled by the top-level parser.

@@ -1,0 +1,234 @@
+"""Extended tests for clodbox.commands.start: lock, flags, credential flow."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from clodbox.commands.start import _run_container
+from clodbox.errors import ContainerError
+
+
+# ---------------------------------------------------------------------------
+# Concurrency lock
+# ---------------------------------------------------------------------------
+
+class TestConcurrencyLock:
+    def test_lock_acquired_and_released(self, start_mocks):
+        with start_mocks() as m:
+            rc = _run_container(
+                project_dir=None, entrypoint=None, image_override=None,
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+            assert rc == 0
+            # fcntl.flock called twice: LOCK_EX|LOCK_NB for acquire, LOCK_UN for release
+            flock_calls = m.fcntl.flock.call_args_list
+            assert len(flock_calls) == 2
+
+    def test_lock_contention_returns_1(self, start_mocks):
+        with start_mocks() as m:
+            m.fcntl.flock.side_effect = OSError("locked")
+            rc = _run_container(
+                project_dir=None, entrypoint=None, image_override=None,
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+            assert rc == 1
+
+    def test_lock_released_on_failure(self, start_mocks):
+        with start_mocks() as m:
+            m.runtime.run.side_effect = RuntimeError("boom")
+            with pytest.raises(RuntimeError):
+                _run_container(
+                    project_dir=None, entrypoint=None, image_override=None,
+                    new_session=False, safe_mode=False, resume_mode=False,
+                    extra_args=[],
+                )
+            # Lock should still be released in finally block
+            flock_calls = m.fcntl.flock.call_args_list
+            assert len(flock_calls) == 2
+
+    def test_lock_file_path(self, start_mocks):
+        """Lock file is created under settings_path."""
+        with start_mocks() as m:
+            _run_container(
+                project_dir=None, entrypoint=None, image_override=None,
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+            # settings_path / ".clodbox.lock" was accessed
+            m.proj.settings_path.__truediv__.assert_called_with(".clodbox.lock")
+
+
+# ---------------------------------------------------------------------------
+# Flag combinations
+# ---------------------------------------------------------------------------
+
+class TestFlagCombinations:
+    def test_new_session_skips_continue(self, start_mocks):
+        with start_mocks() as m:
+            _run_container(
+                project_dir=None, entrypoint=None, image_override=None,
+                new_session=True, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+            cli_args = m.runtime.run.call_args.kwargs.get("cli_args") or []
+            assert "--continue" not in cli_args
+            assert "--dangerously-skip-permissions" in cli_args
+
+    def test_new_project_skips_continue(self, start_mocks):
+        with start_mocks() as m:
+            m.proj.is_new = True
+            _run_container(
+                project_dir=None, entrypoint=None, image_override=None,
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+            cli_args = m.runtime.run.call_args.kwargs.get("cli_args") or []
+            assert "--continue" not in cli_args
+
+    def test_existing_project_adds_continue(self, start_mocks):
+        with start_mocks() as m:
+            m.proj.is_new = False
+            _run_container(
+                project_dir=None, entrypoint=None, image_override=None,
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+            cli_args = m.runtime.run.call_args.kwargs.get("cli_args") or []
+            assert "--continue" in cli_args
+
+    def test_resume_adds_resume_flag(self, start_mocks):
+        with start_mocks() as m:
+            _run_container(
+                project_dir=None, entrypoint=None, image_override=None,
+                new_session=False, safe_mode=False, resume_mode=True,
+                extra_args=[],
+            )
+            cli_args = m.runtime.run.call_args.kwargs.get("cli_args") or []
+            assert "--resume" in cli_args
+            assert "--continue" not in cli_args
+
+    def test_extra_resume_skips_continue(self, start_mocks):
+        with start_mocks() as m:
+            _run_container(
+                project_dir=None, entrypoint=None, image_override=None,
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=["--resume"],
+            )
+            cli_args = m.runtime.run.call_args.kwargs.get("cli_args") or []
+            assert "--continue" not in cli_args
+            assert "--resume" in cli_args
+
+    def test_entrypoint_disables_claude_mode(self, start_mocks):
+        with start_mocks() as m:
+            _run_container(
+                project_dir=None, entrypoint="/bin/bash", image_override=None,
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+            cli_args = m.runtime.run.call_args.kwargs.get("cli_args") or []
+            assert "--dangerously-skip-permissions" not in cli_args
+            assert "--continue" not in cli_args
+
+    def test_double_dash_stripping(self, start_mocks):
+        """run_start strips leading '--' from agent_args."""
+        from clodbox.commands.start import run_start
+        import argparse
+
+        with start_mocks() as m:
+            args = argparse.Namespace(
+                project=None, entrypoint=None, image=None,
+                new=False, safe=False,
+                agent_args=["--", "--my-flag"],
+            )
+            run_start(args)
+            cli_args = m.runtime.run.call_args.kwargs.get("cli_args") or []
+            assert "--my-flag" in cli_args
+            # The leading '--' should be stripped
+            assert cli_args[0] != "--" or cli_args == ["--"]
+
+    def test_safe_and_resume(self, start_mocks):
+        with start_mocks() as m:
+            _run_container(
+                project_dir=None, entrypoint=None, image_override=None,
+                new_session=False, safe_mode=True, resume_mode=True,
+                extra_args=[],
+            )
+            cli_args = m.runtime.run.call_args.kwargs.get("cli_args") or []
+            assert "--dangerously-skip-permissions" not in cli_args
+            assert "--resume" in cli_args
+
+    def test_image_override(self, start_mocks):
+        with start_mocks() as m:
+            _run_container(
+                project_dir=None, entrypoint=None, image_override="custom:v1",
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+            # load_merged_config should have been called with cli_overrides
+            call_kwargs = m.load_merged_config.call_args
+            assert call_kwargs.kwargs["cli_overrides"] == {"container_image": "custom:v1"}
+
+    def test_runtime_not_found_returns_1(self, start_mocks):
+        with start_mocks() as m:
+            m.runtime_cls.side_effect = ContainerError("No runtime")
+            rc = _run_container(
+                project_dir=None, entrypoint=None, image_override=None,
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+            assert rc == 1
+
+    def test_ensure_image_failure_returns_1(self, start_mocks):
+        with start_mocks() as m:
+            m.runtime.ensure_image.side_effect = ContainerError("pull failed")
+            rc = _run_container(
+                project_dir=None, entrypoint=None, image_override=None,
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+            assert rc == 1
+
+    def test_exit_code_propagation(self, start_mocks):
+        with start_mocks() as m:
+            m.runtime.run.return_value = 42
+            rc = _run_container(
+                project_dir=None, entrypoint=None, image_override=None,
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+            assert rc == 42
+
+    def test_credential_refresh_order(self, start_mocks):
+        """host_to_central is called before central_to_project."""
+        call_order = []
+        with start_mocks() as m:
+            m.refresh_host_to_central.side_effect = lambda *a: call_order.append("h2c")
+            m.refresh_central_to_project.side_effect = lambda *a: call_order.append("c2p")
+            _run_container(
+                project_dir=None, entrypoint=None, image_override=None,
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+            assert call_order == ["h2c", "c2p"]
+
+    def test_writeback_after_run(self, start_mocks):
+        """writeback is called after runtime.run."""
+        call_order = []
+        with start_mocks() as m:
+            orig_run = m.runtime.run.return_value
+
+            def track_run(*a, **kw):
+                call_order.append("run")
+                return 0
+            m.runtime.run.side_effect = track_run
+            m.writeback.side_effect = lambda *a: call_order.append("writeback")
+            _run_container(
+                project_dir=None, entrypoint=None, image_override=None,
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+            assert call_order == ["run", "writeback"]
