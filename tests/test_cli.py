@@ -9,9 +9,10 @@ from clodbox.cli import build_parser
 
 class TestParser:
     def test_version(self, capsys):
-        parser = build_parser()
+        from clodbox.cli import main
+
         with pytest.raises(SystemExit) as exc_info:
-            parser.parse_args(["--version"])
+            main(["--version"])
         assert exc_info.value.code == 0
         captured = capsys.readouterr()
         assert "0.1.0" in captured.out
