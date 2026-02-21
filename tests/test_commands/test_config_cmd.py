@@ -341,7 +341,9 @@ class TestConfigClear:
             )
             rc = run(args)
         assert rc == 0
-        assert not project_toml.exists()
+        # project.toml still exists (has metadata), but no config overrides remain
+        from kanibako.config import load_project_overrides
+        assert load_project_overrides(project_toml) == {}
         captured = capsys.readouterr()
         assert "Cleared" in captured.out
 

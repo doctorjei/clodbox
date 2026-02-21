@@ -210,7 +210,7 @@ class TestFlagCombinations:
                 new_session=False, safe_mode=False, resume_mode=False,
                 extra_args=[],
             )
-            m.target.refresh_credentials.assert_called_once_with(m.proj.home_path)
+            m.target.refresh_credentials.assert_called_once_with(m.proj.shell_path)
 
     def test_target_writeback_after_run(self, start_mocks):
         """target.writeback_credentials is called after runtime.run."""

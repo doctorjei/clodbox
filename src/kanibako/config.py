@@ -19,7 +19,7 @@ import tomllib
 _DEFAULTS = {
     "paths_relative_std_path": "kanibako",
     "paths_init_credentials_path": "credentials",
-    "paths_projects_path": "settings",
+    "paths_settings_path": "settings",
     "paths_dot_path": "dotclaude",
     "paths_cfg_file": "claude.json",
     "container_image": "ghcr.io/doctorjei/kanibako-base:latest",
@@ -33,7 +33,7 @@ class KanibakoConfig:
 
     paths_relative_std_path: str = _DEFAULTS["paths_relative_std_path"]
     paths_init_credentials_path: str = _DEFAULTS["paths_init_credentials_path"]
-    paths_projects_path: str = _DEFAULTS["paths_projects_path"]
+    paths_settings_path: str = _DEFAULTS["paths_settings_path"]
     paths_dot_path: str = _DEFAULTS["paths_dot_path"]
     paths_cfg_file: str = _DEFAULTS["paths_cfg_file"]
     container_image: str = _DEFAULTS["container_image"]
@@ -108,7 +108,7 @@ def write_global_config(path: Path, cfg: KanibakoConfig | None = None) -> None:
         "[paths]",
         f'relative_std_path = "{cfg.paths_relative_std_path}"',
         f'init_credentials_path = "{cfg.paths_init_credentials_path}"',
-        f'projects_path = "{cfg.paths_projects_path}"',
+        f'settings_path = "{cfg.paths_settings_path}"',
         f'dot_path = "{cfg.paths_dot_path}"',
         f'cfg_file = "{cfg.paths_cfg_file}"',
         "",
@@ -122,6 +122,82 @@ def write_global_config(path: Path, cfg: KanibakoConfig | None = None) -> None:
 def write_project_config(path: Path, image: str) -> None:
     """Write or update a project.toml with the given image."""
     write_project_config_key(path, "container_image", image)
+
+
+def write_project_meta(
+    path: Path,
+    *,
+    mode: str,
+    layout: str,
+    workspace: str,
+    shell: str,
+    vault_ro: str,
+    vault_rw: str,
+    vault_enabled: bool = True,
+) -> None:
+    """Write resolved project metadata to project.toml, preserving other sections."""
+    existing: dict = {}
+    if path.exists():
+        with open(path, "rb") as f:
+            existing = tomllib.load(f)
+
+    existing["project"] = {"mode": mode, "layout": layout, "vault_enabled": vault_enabled}
+    existing.setdefault("paths", {})
+    existing["paths"]["workspace"] = workspace
+    existing["paths"]["shell"] = shell
+    existing["paths"]["vault_ro"] = vault_ro
+    existing["paths"]["vault_rw"] = vault_rw
+
+    _write_toml(path, existing)
+
+
+def read_project_meta(path: Path) -> dict | None:
+    """Read stored project metadata from project.toml.
+
+    Returns a dict with 'mode', 'workspace', 'shell', 'vault_ro', 'vault_rw'
+    or None if no project metadata is stored.
+    """
+    if not path.exists():
+        return None
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
+
+    project_sec = data.get("project", {})
+    paths_sec = data.get("paths", {})
+
+    if not project_sec.get("mode"):
+        return None
+
+    return {
+        "mode": project_sec["mode"],
+        "layout": project_sec.get("layout", ""),
+        "vault_enabled": project_sec.get("vault_enabled", True),
+        "workspace": paths_sec.get("workspace", ""),
+        "shell": paths_sec.get("shell", ""),
+        "vault_ro": paths_sec.get("vault_ro", ""),
+        "vault_rw": paths_sec.get("vault_rw", ""),
+    }
+
+
+def _write_toml(path: Path, data: dict) -> None:
+    """Write a dict as TOML. Handles one level of nesting (sections with scalar values)."""
+    lines: list[str] = []
+    for section_name, section_data in data.items():
+        if not isinstance(section_data, dict):
+            continue
+        if lines:
+            lines.append("")
+        lines.append(f"[{section_name}]")
+        for k, v in section_data.items():
+            if isinstance(v, bool):
+                lines.append(f"{k} = {'true' if v else 'false'}")
+            elif isinstance(v, (int, float)):
+                lines.append(f"{k} = {v}")
+            else:
+                lines.append(f'{k} = "{v}"')
+    lines.append("")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines))
 
 
 def _split_config_key(flat_key: str) -> tuple[str, str]:
@@ -246,7 +322,7 @@ def load_project_overrides(path: Path) -> dict[str, str]:
 _RC_KEY_MAP: dict[str, str] = {
     "KANIBAKO_RELATIVE_STD_PATH": "paths_relative_std_path",
     "KANIBAKO_INIT_CREDENTIALS_PATH": "paths_init_credentials_path",
-    "KANIBAKO_PROJECTS_PATH": "paths_projects_path",
+    "KANIBAKO_PROJECTS_PATH": "paths_settings_path",
     "KANIBAKO_DOT_PATH": "paths_dot_path",
     "KANIBAKO_CFG_FILE": "paths_cfg_file",
     "KANIBAKO_CONTAINER_IMAGE": "container_image",

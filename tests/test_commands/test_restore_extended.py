@@ -203,7 +203,7 @@ class TestRestoreExtended:
 
         # Now set up the project as decentralized
         project_path = tmp_home / "project"
-        kanibako_dir = project_path / "kanibako"
+        kanibako_dir = project_path / ".kanibako"
         kanibako_dir.mkdir(exist_ok=True)
         # Remove account-centric data so mode detection picks decentralized
         shutil.rmtree(proj.metadata_path)

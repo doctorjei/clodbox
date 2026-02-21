@@ -11,8 +11,10 @@ from kanibako.config import (
     load_config,
     load_merged_config,
     migrate_rc,
+    read_project_meta,
     write_global_config,
     write_project_config,
+    write_project_meta,
 )
 
 
@@ -92,3 +94,85 @@ class TestMigrateRc:
         assert toml.exists()
         assert rc.with_suffix(".rc.bak").exists()
         assert not rc.exists()
+
+
+class TestProjectMeta:
+    """Tests for write_project_meta / read_project_meta."""
+
+    def test_write_and_read(self, tmp_path):
+        toml_path = tmp_path / "project.toml"
+        write_project_meta(
+            toml_path,
+            mode="account_centric",
+            layout="default",
+            workspace="/home/user/myproject",
+            shell="/data/kanibako/settings/abc/shell",
+            vault_ro="/home/user/myproject/vault/share-ro",
+            vault_rw="/home/user/myproject/vault/share-rw",
+        )
+        assert toml_path.is_file()
+
+        meta = read_project_meta(toml_path)
+        assert meta is not None
+        assert meta["mode"] == "account_centric"
+        assert meta["workspace"] == "/home/user/myproject"
+        assert meta["shell"] == "/data/kanibako/settings/abc/shell"
+        assert meta["vault_ro"] == "/home/user/myproject/vault/share-ro"
+        assert meta["vault_rw"] == "/home/user/myproject/vault/share-rw"
+
+    def test_read_missing_file(self, tmp_path):
+        meta = read_project_meta(tmp_path / "nonexistent.toml")
+        assert meta is None
+
+    def test_read_no_project_section(self, tmp_path):
+        toml_path = tmp_path / "project.toml"
+        toml_path.write_text('[container]\nimage = "foo"\n')
+        meta = read_project_meta(toml_path)
+        assert meta is None
+
+    def test_preserves_existing_sections(self, tmp_path):
+        toml_path = tmp_path / "project.toml"
+        toml_path.write_text('[container]\nimage = "custom:v1"\n')
+
+        write_project_meta(
+            toml_path,
+            mode="decentralized",
+            layout="default",
+            workspace="/tmp/proj",
+            shell="/tmp/proj/.kanibako/shell",
+            vault_ro="/tmp/proj/vault/share-ro",
+            vault_rw="/tmp/proj/vault/share-rw",
+        )
+
+        # Container section preserved
+        cfg = load_config(toml_path)
+        assert cfg.container_image == "custom:v1"
+
+        # Metadata also present
+        meta = read_project_meta(toml_path)
+        assert meta["mode"] == "decentralized"
+
+    def test_overwrite_existing_meta(self, tmp_path):
+        toml_path = tmp_path / "project.toml"
+        write_project_meta(
+            toml_path,
+            mode="account_centric",
+            layout="default",
+            workspace="/old",
+            shell="/old/shell",
+            vault_ro="/old/vault/ro",
+            vault_rw="/old/vault/rw",
+        )
+        write_project_meta(
+            toml_path,
+            mode="workset",
+            layout="default",
+            workspace="/new",
+            shell="/new/shell",
+            vault_ro="/new/vault/ro",
+            vault_rw="/new/vault/rw",
+        )
+
+        meta = read_project_meta(toml_path)
+        assert meta["mode"] == "workset"
+        assert meta["workspace"] == "/new"

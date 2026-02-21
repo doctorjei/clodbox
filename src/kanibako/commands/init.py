@@ -24,6 +24,10 @@ def add_init_parser(subparsers: argparse._SubParsersAction) -> None:
         "-p", "--project", default=None,
         help="Path to the project directory (default: cwd)",
     )
+    p.add_argument(
+        "--no-vault", action="store_true",
+        help="Disable vault directories (shared read-only and read-write mounts)",
+    )
     p.set_defaults(func=run_init)
 
 
@@ -40,6 +44,10 @@ def add_new_parser(subparsers: argparse._SubParsersAction) -> None:
     p.add_argument(
         "path",
         help="Path to the new project directory (must not already exist)",
+    )
+    p.add_argument(
+        "--no-vault", action="store_true",
+        help="Disable vault directories (shared read-only and read-write mounts)",
     )
     p.set_defaults(func=run_new)
 
@@ -58,8 +66,10 @@ def run_init(args: argparse.Namespace) -> int:
     std = load_std_paths(config)
 
     project_dir = args.project
+    vault_enabled = not getattr(args, "no_vault", False)
     proj = resolve_decentralized_project(
         std, config, project_dir, initialize=True,
+        vault_enabled=vault_enabled,
     )
 
     _write_project_gitignore(proj.project_path)
@@ -92,8 +102,10 @@ def run_new(args: argparse.Namespace) -> int:
     config = load_config(config_file)
     std = load_std_paths(config)
 
+    vault_enabled = not getattr(args, "no_vault", False)
     proj = resolve_decentralized_project(
         std, config, str(target), initialize=True,
+        vault_enabled=vault_enabled,
     )
 
     _write_project_gitignore(proj.project_path)
@@ -102,11 +114,11 @@ def run_new(args: argparse.Namespace) -> int:
     return 0
 
 
-_GITIGNORE_ENTRIES = ["kanibako/", "home/"]
+_GITIGNORE_ENTRIES = [".kanibako/"]
 
 
 def _write_project_gitignore(project_path: Path) -> None:
-    """Append kanibako/ and home/ to the project's root .gitignore."""
+    """Append .kanibako/ to the project's root .gitignore."""
     gitignore = project_path / ".gitignore"
     existing = ""
     if gitignore.is_file():

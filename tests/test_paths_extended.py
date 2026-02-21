@@ -13,25 +13,25 @@ from kanibako.paths import ProjectMode, load_std_paths, resolve_project
 
 
 # ---------------------------------------------------------------------------
-# Path recovery (initialize=True repairs missing home_path)
+# Path recovery (initialize=True repairs missing shell_path)
 # ---------------------------------------------------------------------------
 
 class TestPathRecovery:
-    def test_missing_home_path_recovered(self, config_file, tmp_home, credentials_dir):
+    def test_missing_shell_path_recovered(self, config_file, tmp_home, credentials_dir):
         config = load_config(config_file)
         std = load_std_paths(config)
         project_dir = str(tmp_home / "project")
 
         # First init
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
-        # Delete home_path
+        # Delete shell_path
         import shutil
-        shutil.rmtree(proj.home_path)
-        assert not proj.home_path.exists()
+        shutil.rmtree(proj.shell_path)
+        assert not proj.shell_path.exists()
 
         # Re-resolve with initialize=True should recover
         proj2 = resolve_project(std, config, project_dir=project_dir, initialize=True)
-        assert proj2.home_path.is_dir()
+        assert proj2.shell_path.is_dir()
 
     def test_no_initialize_skips_recovery(self, config_file, tmp_home, credentials_dir):
         config = load_config(config_file)
@@ -40,11 +40,11 @@ class TestPathRecovery:
 
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
         import shutil
-        shutil.rmtree(proj.home_path)
+        shutil.rmtree(proj.shell_path)
 
         # Without initialize, no recovery
         proj2 = resolve_project(std, config, project_dir=project_dir, initialize=False)
-        assert not proj2.home_path.is_dir()
+        assert not proj2.shell_path.is_dir()
 
 
 # ---------------------------------------------------------------------------
@@ -111,3 +111,71 @@ class TestProjectPathsModeDefault:
 
         mode_field = next(f for f in fields(ProjectPaths) if f.name == "mode")
         assert mode_field.default is ProjectMode.account_centric
+
+
+# ---------------------------------------------------------------------------
+# Vault optional (vault_enabled=False skips vault dirs)
+# ---------------------------------------------------------------------------
+
+class TestVaultOptional:
+    def test_ac_vault_disabled_skips_dirs(self, config_file, tmp_home, credentials_dir):
+        """AC project with vault_enabled=False skips vault directory creation."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = str(tmp_home / "project")
+
+        proj = resolve_project(
+            std, config, project_dir=project_dir,
+            initialize=True, vault_enabled=False,
+        )
+
+        assert proj.vault_enabled is False
+        assert not proj.vault_ro_path.exists()
+        assert not proj.vault_rw_path.exists()
+
+    def test_ac_vault_enabled_creates_dirs(self, config_file, tmp_home, credentials_dir):
+        """AC project with default vault_enabled=True creates vault dirs."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = str(tmp_home / "project")
+
+        proj = resolve_project(
+            std, config, project_dir=project_dir, initialize=True,
+        )
+
+        assert proj.vault_enabled is True
+        assert proj.vault_ro_path.is_dir()
+        assert proj.vault_rw_path.is_dir()
+
+    def test_vault_disabled_persists_in_metadata(self, config_file, tmp_home, credentials_dir):
+        """vault_enabled=False is stored in project.toml and read back."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = str(tmp_home / "project")
+
+        resolve_project(
+            std, config, project_dir=project_dir,
+            initialize=True, vault_enabled=False,
+        )
+
+        # Second resolve reads metadata, should still be False.
+        proj2 = resolve_project(
+            std, config, project_dir=project_dir, initialize=False,
+        )
+        assert proj2.vault_enabled is False
+
+    def test_decentralized_vault_disabled(self, config_file, tmp_home, credentials_dir):
+        """Decentralized project with vault_enabled=False skips vault dirs."""
+        from kanibako.paths import resolve_decentralized_project
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = str(tmp_home / "project")
+
+        proj = resolve_decentralized_project(
+            std, config, project_dir=project_dir,
+            initialize=True, vault_enabled=False,
+        )
+
+        assert proj.vault_enabled is False
+        assert not proj.vault_ro_path.exists()
+        assert not proj.vault_rw_path.exists()

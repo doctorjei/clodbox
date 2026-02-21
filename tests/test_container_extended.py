@@ -99,7 +99,7 @@ class TestRunCommandAssembly:
             vault_ro.mkdir(exist_ok=True)
             vault_rw.mkdir(exist_ok=True)
         return dict(
-            home_path=tmp_path / "home",
+            shell_path=tmp_path / "home",
             project_path=tmp_path / "proj",
             vault_ro_path=vault_ro,
             vault_rw_path=vault_rw,
@@ -113,7 +113,7 @@ class TestRunCommandAssembly:
             rt.run("img:latest", **kwargs)
             cmd = m_run.call_args[0][0]
             # Core mounts
-            assert f"{kwargs['home_path']}:/home/agent:Z,U" in cmd
+            assert f"{kwargs['shell_path']}:/home/agent:Z,U" in cmd
             assert f"{kwargs['project_path']}:/home/agent/workspace:Z,U" in cmd
             # Vault mounts (dirs exist)
             assert f"{kwargs['vault_ro_path']}:/home/agent/share-ro:ro" in cmd
@@ -309,3 +309,58 @@ class TestListLocalImages:
             images = rt.list_local_images()
             assert len(images) == 1
             assert images[0] == ("ghcr.io/x/kanibako:latest", "1.2GB")
+
+
+class TestVaultDisabledRun:
+    """Tests that vault_enabled=False suppresses vault mounts and tmpfs."""
+
+    def _make_rt(self):
+        return ContainerRuntime(command="/usr/bin/podman")
+
+    def test_vault_disabled_skips_mounts_and_tmpfs(self, tmp_path):
+        rt = self._make_rt()
+        vault_ro = tmp_path / "vault-ro"
+        vault_rw = tmp_path / "vault-rw"
+        vault_ro.mkdir()
+        vault_rw.mkdir()
+        with patch("kanibako.container.subprocess.run") as m_run:
+            m_run.return_value = MagicMock(returncode=0)
+            rt.run(
+                "img:latest",
+                shell_path=tmp_path / "home",
+                project_path=tmp_path / "proj",
+                vault_ro_path=vault_ro,
+                vault_rw_path=vault_rw,
+                vault_tmpfs=True,
+                vault_enabled=False,
+            )
+            cmd = m_run.call_args[0][0]
+            cmd_str = " ".join(cmd)
+            # No vault mounts even though dirs exist
+            assert "share-ro" not in cmd_str
+            assert "share-rw" not in cmd_str
+            # No tmpfs overlay
+            assert "tmpfs" not in cmd_str
+
+    def test_vault_enabled_includes_mounts(self, tmp_path):
+        rt = self._make_rt()
+        vault_ro = tmp_path / "vault-ro"
+        vault_rw = tmp_path / "vault-rw"
+        vault_ro.mkdir()
+        vault_rw.mkdir()
+        with patch("kanibako.container.subprocess.run") as m_run:
+            m_run.return_value = MagicMock(returncode=0)
+            rt.run(
+                "img:latest",
+                shell_path=tmp_path / "home",
+                project_path=tmp_path / "proj",
+                vault_ro_path=vault_ro,
+                vault_rw_path=vault_rw,
+                vault_tmpfs=True,
+                vault_enabled=True,
+            )
+            cmd = m_run.call_args[0][0]
+            cmd_str = " ".join(cmd)
+            assert "share-ro" in cmd_str
+            assert "share-rw" in cmd_str
+            assert "tmpfs" in cmd_str

@@ -43,7 +43,7 @@ class TestCreateWorkset:
         assert ws.name == "my-set"
         assert ws.root == root.resolve()
         assert ws.root.is_dir()
-        assert (ws.root / "projects").is_dir()
+        assert (ws.root / "kanibako").is_dir()
         assert (ws.root / "workspaces").is_dir()
         assert (ws.root / "vault").is_dir()
         assert ws.toml_path.is_file()
@@ -200,7 +200,7 @@ class TestAddProject:
         add_project(ws, "cool-app", tmp_home / "project")
 
         resolved = root.resolve()
-        assert (resolved / "projects" / "cool-app").is_dir()
+        assert (resolved / "kanibako" / "cool-app").is_dir()
         assert (resolved / "workspaces" / "cool-app").is_dir()
         assert (resolved / "vault" / "cool-app" / "share-ro").is_dir()
         assert (resolved / "vault" / "cool-app" / "share-rw").is_dir()
@@ -260,7 +260,7 @@ class TestRemoveProject:
 
         remove_project(ws, "proj")
         resolved = root.resolve()
-        assert (resolved / "projects" / "proj").is_dir()
+        assert (resolved / "kanibako" / "proj").is_dir()
 
     def test_removes_files_when_requested(self, std, tmp_home):
         root = tmp_home / "worksets" / "my-set"
@@ -269,7 +269,7 @@ class TestRemoveProject:
 
         remove_project(ws, "proj", remove_files=True)
         resolved = root.resolve()
-        assert not (resolved / "projects" / "proj").exists()
+        assert not (resolved / "kanibako" / "proj").exists()
         assert not (resolved / "workspaces" / "proj").exists()
         assert not (resolved / "vault" / "proj").exists()
 
@@ -291,7 +291,7 @@ class TestWorksetProperties:
         ws = create_workset("my-set", root, std)
 
         resolved = root.resolve()
-        assert ws.projects_dir == resolved / "projects"
+        assert ws.projects_dir == resolved / "kanibako"
         assert ws.workspaces_dir == resolved / "workspaces"
         assert ws.vault_dir == resolved / "vault"
         assert ws.toml_path == resolved / "workset.toml"

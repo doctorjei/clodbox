@@ -77,8 +77,8 @@ class TestRunInit:
 
         assert rc == 0
         resolved = project_dir.resolve()
-        assert (resolved / "kanibako").is_dir()
-        assert (resolved / "home").is_dir()
+        assert (resolved / ".kanibako").is_dir()
+        assert (resolved / ".kanibako" / "shell").is_dir()
         assert (resolved / "vault" / "share-ro").is_dir()
         assert (resolved / "vault" / "share-rw").is_dir()
 
@@ -92,8 +92,7 @@ class TestRunInit:
         gitignore = project_dir.resolve() / ".gitignore"
         assert gitignore.is_file()
         content = gitignore.read_text()
-        assert "kanibako/" in content
-        assert "home/" in content
+        assert ".kanibako/" in content
 
     def test_init_without_local_fails(self, config_file, project_dir, capsys):
         parser = build_parser()
@@ -136,8 +135,8 @@ class TestRunNew:
         assert rc == 0
         resolved = target.resolve()
         assert resolved.is_dir()
-        assert (resolved / "kanibako").is_dir()
-        assert (resolved / "home").is_dir()
+        assert (resolved / ".kanibako").is_dir()
+        assert (resolved / ".kanibako" / "shell").is_dir()
 
     def test_new_local_writes_gitignore(
         self, config_file, credentials_dir, tmp_home, capsys,
@@ -150,8 +149,7 @@ class TestRunNew:
         gitignore = target.resolve() / ".gitignore"
         assert gitignore.is_file()
         content = gitignore.read_text()
-        assert "kanibako/" in content
-        assert "home/" in content
+        assert ".kanibako/" in content
 
     def test_new_without_local_fails(self, config_file, tmp_home, capsys):
         target = tmp_home / "should-not-exist"
@@ -176,3 +174,45 @@ class TestRunNew:
         assert rc == 1
         captured = capsys.readouterr()
         assert "already exists" in captured.err
+
+
+class TestInitNoVault:
+    """Tests for --no-vault flag on init / new."""
+
+    def test_init_no_vault_skips_vault_dirs(
+        self, config_file, tmp_home, credentials_dir, capsys,
+    ):
+        project = tmp_home / "novault-project"
+        project.mkdir()
+        parser = build_parser()
+        args = parser.parse_args(["init", "--local", "-p", str(project), "--no-vault"])
+        rc = run_init(args)
+
+        assert rc == 0
+        assert (project / ".kanibako").is_dir()
+        assert not (project / "vault").exists()
+
+    def test_new_no_vault_skips_vault_dirs(
+        self, config_file, tmp_home, credentials_dir, capsys,
+    ):
+        target = tmp_home / "novault-new"
+        parser = build_parser()
+        args = parser.parse_args(["new", "--local", str(target), "--no-vault"])
+        rc = run_new(args)
+
+        assert rc == 0
+        assert (target / ".kanibako").is_dir()
+        assert not (target / "vault").exists()
+
+    def test_init_with_vault_creates_vault_dirs(
+        self, config_file, tmp_home, credentials_dir, capsys,
+    ):
+        project = tmp_home / "vault-project"
+        project.mkdir()
+        parser = build_parser()
+        args = parser.parse_args(["init", "--local", "-p", str(project)])
+        rc = run_init(args)
+
+        assert rc == 0
+        assert (project / "vault" / "share-ro").is_dir()
+        assert (project / "vault" / "share-rw").is_dir()

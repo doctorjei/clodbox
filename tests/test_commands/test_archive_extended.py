@@ -163,7 +163,7 @@ class TestArchiveExtended:
         std = load_std_paths(config)
         project_dir = tmp_home / "project"
         # Create decentralized marker and some data
-        kanibako_dir = project_dir / "kanibako"
+        kanibako_dir = project_dir / ".kanibako"
         kanibako_dir.mkdir()
         (kanibako_dir / "data.txt").write_text("decentralized-data")
 

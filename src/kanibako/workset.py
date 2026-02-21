@@ -53,7 +53,7 @@ class Workset:
 
     @property
     def projects_dir(self) -> Path:
-        return self.root / "projects"
+        return self.root / "kanibako"
 
     @property
     def workspaces_dir(self) -> Path:
@@ -166,7 +166,7 @@ def create_workset(name: str, root: Path, std: StandardPaths) -> Workset:
 
     # Create directory skeleton.
     root.mkdir(parents=True)
-    for subdir in ("projects", "workspaces", "vault"):
+    for subdir in ("kanibako", "workspaces", "vault"):
         (root / subdir).mkdir()
 
     ws = Workset(

@@ -247,9 +247,16 @@ def _run_container(
     lock_fd.flush()
 
     try:
+        # Auto-snapshot vault share-rw before launch.
+        if proj.vault_enabled and proj.vault_rw_path.is_dir():
+            from kanibako.snapshots import auto_snapshot
+            snap = auto_snapshot(proj.vault_rw_path)
+            if snap:
+                print(f"Vault snapshot: {snap.name}", file=sys.stderr)
+
         # Credential refresh via target
         if target:
-            target.refresh_credentials(proj.home_path)
+            target.refresh_credentials(proj.shell_path)
 
         # Build CLI args via target
         if target:
@@ -271,12 +278,13 @@ def _run_container(
         # Run the container
         rc = runtime.run(
             image,
-            home_path=proj.home_path,
+            shell_path=proj.shell_path,
             project_path=proj.project_path,
             vault_ro_path=proj.vault_ro_path,
             vault_rw_path=proj.vault_rw_path,
             extra_mounts=extra_mounts or None,
             vault_tmpfs=(proj.mode == ProjectMode.account_centric),
+            vault_enabled=proj.vault_enabled,
             name=container_name,
             entrypoint=entrypoint,
             cli_args=cli_args or None,
@@ -284,7 +292,7 @@ def _run_container(
 
         # Write back refreshed credentials via target
         if target:
-            target.writeback_credentials(proj.home_path)
+            target.writeback_credentials(proj.shell_path)
 
         return rc
 

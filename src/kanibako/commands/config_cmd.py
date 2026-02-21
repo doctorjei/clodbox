@@ -147,14 +147,16 @@ def _unset_key(project_toml, proj, raw_key: str) -> int:
 
 
 def _clear_config(project_toml, proj) -> int:
-    """Remove the project-level config file."""
-    if not project_toml.exists():
+    """Remove user-configured overrides from the project-level config file."""
+    overrides = load_project_overrides(project_toml)
+    if not overrides:
         print(f"No project config to clear for {proj.project_path}")
         return 0
 
     print(f"This will clear all project-level config overrides for {proj.project_path}")
     confirm_prompt("Type 'yes' to proceed: ")
 
-    project_toml.unlink()
+    for key in overrides:
+        unset_project_config_key(project_toml, key)
     print(f"Cleared project config for {proj.project_path}")
     return 0

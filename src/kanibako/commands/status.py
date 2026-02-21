@@ -126,7 +126,7 @@ def run_status(args: argparse.Namespace) -> int:
 
     container_running, container_detail = _check_container_running(proj.project_hash)
 
-    creds_file = proj.home_path / ".claude" / ".credentials.json"
+    creds_file = proj.shell_path / ".claude" / ".credentials.json"
     cred_age = _format_credential_age(creds_file)
 
     # Display mode name with dashes for readability.
@@ -138,7 +138,7 @@ def run_status(args: argparse.Namespace) -> int:
         ("Project", str(proj.project_path)),
         ("Hash", short_hash(proj.project_hash)),
         ("Metadata", str(proj.metadata_path)),
-        ("Home", str(proj.home_path)),
+        ("Shell", str(proj.shell_path)),
         ("Vault RO", str(proj.vault_ro_path)),
         ("Vault RW", str(proj.vault_rw_path)),
         ("Image", merged.container_image),

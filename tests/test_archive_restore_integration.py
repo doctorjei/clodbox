@@ -227,7 +227,7 @@ class TestRestoreGitIntegration:
         proj = resolve_project(std, config, project_dir=str(real_git_repo), initialize=True)
 
         # Write session data
-        session_file = proj.home_path / ".claude" / "session.json"
+        session_file = proj.shell_path / ".claude" / "session.json"
         session_file.write_text('{"test": "data"}')
 
         args = argparse.Namespace(
@@ -382,7 +382,7 @@ class TestArchiveRestoreRoundTrip:
 
         # Write session data
         session_data = '{"conversations": [{"id": "abc123"}], "count": 42}'
-        session_file = proj.home_path / ".claude" / "session-data.json"
+        session_file = proj.shell_path / ".claude" / "session-data.json"
         session_file.write_text(session_data)
 
         args = argparse.Namespace(
@@ -428,7 +428,7 @@ class TestArchiveRestoreRoundTrip:
         proj = resolve_project(std, config, project_dir=str(real_git_repo), initialize=True)
 
         binary_data = bytes(range(256))
-        binary_file = proj.home_path / ".claude" / "binary_blob.bin"
+        binary_file = proj.shell_path / ".claude" / "binary_blob.bin"
         binary_file.write_bytes(binary_data)
 
         args = argparse.Namespace(
@@ -471,7 +471,7 @@ class TestArchiveRestoreRoundTrip:
 
         # Write data in project A
         session_data = "project A session data"
-        session_file_a = proj_a.home_path / ".claude" / "session.txt"
+        session_file_a = proj_a.shell_path / ".claude" / "session.txt"
         session_file_a.write_text(session_data)
 
         args = argparse.Namespace(
@@ -515,6 +515,6 @@ class TestArchiveRestoreRoundTrip:
 
             # Verify data landed in project B's settings
             proj_b = resolve_project(std, config, project_dir=str(project_b), initialize=False)
-            session_file_b = proj_b.home_path / ".claude" / "session.txt"
+            session_file_b = proj_b.shell_path / ".claude" / "session.txt"
             assert session_file_b.exists()
             assert session_file_b.read_text() == session_data

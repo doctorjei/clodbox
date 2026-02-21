@@ -60,7 +60,7 @@ class TestResolveWorksetProject:
 
         assert proj.project_path == ws.workspaces_dir / name
         assert proj.metadata_path == ws.projects_dir / name
-        assert proj.home_path == ws.projects_dir / name / "home"
+        assert proj.shell_path == ws.projects_dir / name / "shell"
         assert proj.vault_ro_path == ws.vault_dir / name / "share-ro"
         assert proj.vault_rw_path == ws.vault_dir / name / "share-rw"
 
@@ -76,14 +76,14 @@ class TestResolveWorksetProject:
         with pytest.raises(WorksetError, match="not found"):
             resolve_workset_project(ws, "nonexistent", std, config)
 
-    def test_initialize_creates_home_path(
+    def test_initialize_creates_shell_path(
         self, workset_env, std, config, credentials_dir
     ):
         ws, name = workset_env
         proj = resolve_workset_project(ws, name, std, config, initialize=True)
 
-        assert proj.home_path.is_dir()
-        assert (proj.home_path / ".claude").is_dir()
+        assert proj.shell_path.is_dir()
+        assert (proj.shell_path / ".claude").is_dir()
 
     def test_initialize_copies_credentials(
         self, workset_env, std, config, credentials_dir
@@ -91,7 +91,7 @@ class TestResolveWorksetProject:
         ws, name = workset_env
         proj = resolve_workset_project(ws, name, std, config, initialize=True)
 
-        creds_file = proj.home_path / ".claude" / ".credentials.json"
+        creds_file = proj.shell_path / ".claude" / ".credentials.json"
         assert creds_file.is_file()
         data = json.loads(creds_file.read_text())
         assert "claudeAiOauth" in data
@@ -102,14 +102,14 @@ class TestResolveWorksetProject:
         ws, name = workset_env
         proj = resolve_workset_project(ws, name, std, config, initialize=True)
 
-        assert (proj.home_path / ".bashrc").is_file()
-        assert (proj.home_path / ".profile").is_file()
+        assert (proj.shell_path / ".bashrc").is_file()
+        assert (proj.shell_path / ".profile").is_file()
 
     def test_no_initialize_skips_creation(self, workset_env, std, config):
         ws, name = workset_env
         proj = resolve_workset_project(ws, name, std, config, initialize=False)
 
-        assert not proj.home_path.is_dir()
+        assert not proj.shell_path.is_dir()
         assert not proj.is_new
 
     def test_is_new_true_on_first_init(
@@ -127,20 +127,20 @@ class TestResolveWorksetProject:
         proj2 = resolve_workset_project(ws, name, std, config, initialize=True)
         assert proj2.is_new is False
 
-    def test_recovery_missing_home_path(
+    def test_recovery_missing_shell_path(
         self, workset_env, std, config, credentials_dir
     ):
         ws, name = workset_env
         # First init to create everything.
         proj = resolve_workset_project(ws, name, std, config, initialize=True)
-        # Delete home_path to simulate corruption.
+        # Delete shell_path to simulate corruption.
         import shutil
-        shutil.rmtree(proj.home_path)
-        assert not proj.home_path.exists()
+        shutil.rmtree(proj.shell_path)
+        assert not proj.shell_path.exists()
 
-        # Re-resolve with initialize; recovery should recreate home_path.
+        # Re-resolve with initialize; recovery should recreate shell_path.
         proj2 = resolve_workset_project(ws, name, std, config, initialize=True)
-        assert proj2.home_path.is_dir()
+        assert proj2.shell_path.is_dir()
 
     def test_no_project_path_breadcrumb(
         self, workset_env, std, config, credentials_dir
@@ -171,12 +171,12 @@ class TestWorksetProjectCredentialFlow:
         ws, name = workset_env
         proj = resolve_workset_project(ws, name, std, config, initialize=True)
 
-        creds_file = proj.home_path / ".claude" / ".credentials.json"
+        creds_file = proj.shell_path / ".claude" / ".credentials.json"
         assert creds_file.is_file()
         # Path should be under the workset's projects dir.
         assert str(ws.projects_dir) in str(creds_file)
 
-    def test_refresh_central_to_project_works_with_workset_home_path(
+    def test_refresh_central_to_project_works_with_workset_shell_path(
         self, workset_env, std, config, credentials_dir
     ):
         ws, name = workset_env
@@ -185,7 +185,7 @@ class TestWorksetProjectCredentialFlow:
         from kanibako.credentials import refresh_central_to_project
 
         central = std.credentials_path / config.paths_dot_path / ".credentials.json"
-        project_creds = proj.home_path / ".claude" / ".credentials.json"
+        project_creds = proj.shell_path / ".claude" / ".credentials.json"
 
         # Central is newer (copy from credential template), so merge should work.
         # Touch central to ensure it's newer.

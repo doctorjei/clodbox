@@ -13,11 +13,11 @@ from kanibako.workset import add_project, create_workset
 
 class TestCleanExtended:
     def test_purge_decentralized_project(self, config_file, tmp_home):
-        """Purge removes kanibako/ for decentralized projects."""
+        """Purge removes .kanibako/ for decentralized projects."""
         from kanibako.commands.clean import run
 
         project_dir = tmp_home / "project"
-        kanibako_dir = project_dir / "kanibako"
+        kanibako_dir = project_dir / ".kanibako"
         kanibako_dir.mkdir()
         (kanibako_dir / "data.txt").write_text("session-data")
 
@@ -43,8 +43,8 @@ class TestCleanExtended:
         # Create a decentralized project
         dec_dir = tmp_home / "dec_project"
         dec_dir.mkdir()
-        (dec_dir / "kanibako").mkdir()
-        (dec_dir / "kanibako" / "data.txt").write_text("dec-data")
+        (dec_dir / ".kanibako").mkdir()
+        (dec_dir / ".kanibako" / "data.txt").write_text("dec-data")
 
         args = argparse.Namespace(all_projects=True, force=True)
         rc = run(args)
@@ -52,8 +52,8 @@ class TestCleanExtended:
 
         # Account-centric settings should be gone
         assert not proj.metadata_path.exists()
-        # Decentralized kanibako/ should still exist (not covered by --all)
-        assert (dec_dir / "kanibako" / "data.txt").exists()
+        # Decentralized .kanibako/ should still exist (not covered by --all)
+        assert (dec_dir / ".kanibako" / "data.txt").exists()
 
 
 class TestCleanWorkset:

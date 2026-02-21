@@ -9,7 +9,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from kanibako.config import KanibakoConfig, load_config
+from kanibako.config import KanibakoConfig, load_config, read_project_meta, write_project_meta
 from kanibako.errors import ConfigError, ProjectError, WorksetError
 from kanibako.utils import project_hash
 
@@ -23,6 +23,27 @@ class ProjectMode(Enum):
     account_centric = "account_centric"
     workset = "workset"
     decentralized = "decentralized"
+
+
+class ProjectLayout(Enum):
+    """Directory layout variant within a project mode.
+
+    - **simple**: shell and vault live inside the workspace (minimal footprint)
+    - **default**: shell in settings, vault in workspace (middle ground)
+    - **tree**: full separation — all four folders are top-level siblings
+    """
+
+    simple = "simple"
+    default = "default"
+    tree = "tree"
+
+
+# Default layout per mode.
+_DEFAULT_LAYOUT = {
+    ProjectMode.account_centric: ProjectLayout.default,
+    ProjectMode.workset: ProjectLayout.tree,
+    ProjectMode.decentralized: ProjectLayout.simple,
+}
 
 
 @dataclass
@@ -47,11 +68,13 @@ class ProjectPaths:
     project_path: Path
     project_hash: str
     metadata_path: Path      # host-only: project.toml, breadcrumb, lock
-    home_path: Path          # mounted as /home/agent
+    shell_path: Path         # mounted as /home/agent
     vault_ro_path: Path      # {project}/vault/share-ro (→ /home/agent/share-ro)
     vault_rw_path: Path      # {project}/vault/share-rw (→ /home/agent/share-rw)
     is_new: bool = field(default=False)
     mode: ProjectMode = field(default=ProjectMode.account_centric)
+    layout: ProjectLayout = field(default=ProjectLayout.default)
+    vault_enabled: bool = field(default=True)
 
 
 def _xdg(env_var: str, default_suffix: str) -> Path:
@@ -120,12 +143,20 @@ def resolve_project(
     project_dir: str | None = None,
     *,
     initialize: bool = False,
+    layout: ProjectLayout | None = None,
+    vault_enabled: bool | None = None,
 ) -> ProjectPaths:
     """Resolve (and optionally initialize) per-project paths.
 
     When *initialize* is True (used by ``start``), missing project directories
     are created and credential templates are copied in.  When False (used by
     subcommands like ``archive``/``purge``), the paths are merely computed.
+
+    *layout* overrides the default layout for new projects.  Existing projects
+    read their layout from ``project.toml``.
+
+    *vault_enabled* controls whether vault directories are created and mounted.
+    Defaults to True for new projects; existing projects read from ``project.toml``.
     """
     raw = project_dir or os.getcwd()
     project_path = Path(raw).resolve()
@@ -134,52 +165,131 @@ def resolve_project(
         raise ProjectError(f"Project path '{project_path}' does not exist.")
 
     phash = project_hash(str(project_path))
-    project_dir_path = std.data_path / "projects" / phash
+    project_dir_path = std.data_path / "settings" / phash
     metadata_path = project_dir_path
-    home_path = project_dir_path / "home"
-    vault_ro_path = project_path / "vault" / "share-ro"
-    vault_rw_path = project_path / "vault" / "share-rw"
+
+    # Check for stored paths in project.toml (enables user overrides).
+    project_toml = metadata_path / "project.toml"
+    meta = read_project_meta(project_toml)
+    if meta:
+        actual_layout = ProjectLayout(meta["layout"]) if meta.get("layout") else _DEFAULT_LAYOUT[ProjectMode.account_centric]
+        shell_path = Path(meta["shell"]) if meta["shell"] else metadata_path / "shell"
+        vault_ro_path = Path(meta["vault_ro"]) if meta["vault_ro"] else project_path / "vault" / "share-ro"
+        vault_rw_path = Path(meta["vault_rw"]) if meta["vault_rw"] else project_path / "vault" / "share-rw"
+        actual_vault_enabled = meta.get("vault_enabled", True) if vault_enabled is None else vault_enabled
+    else:
+        actual_layout = layout or _DEFAULT_LAYOUT[ProjectMode.account_centric]
+        shell_path, vault_ro_path, vault_rw_path = _compute_ac_paths(
+            actual_layout, metadata_path, project_path,
+        )
+        actual_vault_enabled = vault_enabled if vault_enabled is not None else True
 
     is_new = False
     if initialize and not project_dir_path.is_dir():
         _init_project(
-            std, metadata_path, home_path,
+            std, metadata_path, shell_path,
             vault_ro_path, vault_rw_path, project_path,
+            vault_enabled=actual_vault_enabled,
+        )
+        write_project_meta(
+            project_toml,
+            mode="account_centric",
+            layout=actual_layout.value,
+            workspace=str(project_path),
+            shell=str(shell_path),
+            vault_ro=str(vault_ro_path),
+            vault_rw=str(vault_rw_path),
+            vault_enabled=actual_vault_enabled,
         )
         is_new = True
 
     if initialize:
-        # Recovery: ensure home exists even if metadata_path was present.
-        if not home_path.is_dir():
-            home_path.mkdir(parents=True, exist_ok=True)
-            _bootstrap_shell(home_path)
+        # Recovery: ensure shell exists even if metadata_path was present.
+        if not shell_path.is_dir():
+            shell_path.mkdir(parents=True, exist_ok=True)
+            _bootstrap_shell(shell_path)
         # Backfill project-path.txt for pre-existing projects.
         breadcrumb = metadata_path / "project-path.txt"
         if metadata_path.is_dir() and not breadcrumb.exists():
             breadcrumb.write_text(str(project_path) + "\n")
+        # Convenience symlink when vault lives outside the workspace.
+        if actual_vault_enabled:
+            _ensure_vault_symlink(project_path, vault_ro_path)
 
     return ProjectPaths(
         project_path=project_path,
         project_hash=phash,
         metadata_path=metadata_path,
-        home_path=home_path,
+        shell_path=shell_path,
         vault_ro_path=vault_ro_path,
         vault_rw_path=vault_rw_path,
         is_new=is_new,
         mode=ProjectMode.account_centric,
+        layout=actual_layout,
+        vault_enabled=actual_vault_enabled,
     )
 
 
-def _bootstrap_shell(home_path: Path) -> None:
-    """Write minimal shell skeleton files into a new home directory."""
-    bashrc = home_path / ".bashrc"
+def _compute_ac_paths(
+    layout: ProjectLayout, metadata_path: Path, project_path: Path,
+) -> tuple[Path, Path, Path]:
+    """Compute (shell, vault_ro, vault_rw) for account-centric mode."""
+    if layout == ProjectLayout.simple:
+        shell = project_path / ".shell"
+        vault_ro = project_path / "vault" / "share-ro"
+        vault_rw = project_path / "vault" / "share-rw"
+    elif layout == ProjectLayout.tree:
+        shell = metadata_path / "shell"
+        vault_ro = metadata_path / "vault" / "share-ro"
+        vault_rw = metadata_path / "vault" / "share-rw"
+    else:  # default
+        shell = metadata_path / "shell"
+        vault_ro = project_path / "vault" / "share-ro"
+        vault_rw = project_path / "vault" / "share-rw"
+    return shell, vault_ro, vault_rw
+
+
+def _compute_ws_paths(
+    layout: ProjectLayout, metadata_path: Path, project_path: Path,
+    vault_base: Path, project_name: str,
+) -> tuple[Path, Path, Path]:
+    """Compute (shell, vault_ro, vault_rw) for workset mode."""
+    if layout == ProjectLayout.simple:
+        shell = project_path / ".shell"
+        vault_ro = project_path / "vault" / "share-ro"
+        vault_rw = project_path / "vault" / "share-rw"
+    else:  # default / tree (identical for workset)
+        shell = metadata_path / "shell"
+        vault_ro = vault_base / project_name / "share-ro"
+        vault_rw = vault_base / project_name / "share-rw"
+    return shell, vault_ro, vault_rw
+
+
+def _compute_decentral_paths(
+    layout: ProjectLayout, metadata_path: Path, project_path: Path,
+) -> tuple[Path, Path, Path]:
+    """Compute (shell, vault_ro, vault_rw) for decentralized mode."""
+    if layout == ProjectLayout.tree:
+        shell = project_path / "shell"
+        vault_ro = project_path / "vault" / "share-ro"
+        vault_rw = project_path / "vault" / "share-rw"
+    else:  # simple (default for decentralized)
+        shell = metadata_path / "shell"
+        vault_ro = project_path / "vault" / "share-ro"
+        vault_rw = project_path / "vault" / "share-rw"
+    return shell, vault_ro, vault_rw
+
+
+def _bootstrap_shell(shell_path: Path) -> None:
+    """Write minimal shell skeleton files into a new shell directory."""
+    bashrc = shell_path / ".bashrc"
     if not bashrc.exists():
         bashrc.write_text(
             "# kanibako shell environment\n"
             "[ -f /etc/bashrc ] && . /etc/bashrc\n"
             'export PS1="(kanibako) \\u@\\h:\\w\\$ "\n'
         )
-    profile = home_path / ".profile"
+    profile = shell_path / ".profile"
     if not profile.exists():
         profile.write_text(
             "# kanibako login profile\n"
@@ -187,13 +297,48 @@ def _bootstrap_shell(home_path: Path) -> None:
         )
 
 
+def _ensure_vault_symlink(project_path: Path, vault_ro_path: Path) -> None:
+    """Create a convenience symlink from project_path/vault when vault lives elsewhere.
+
+    In AC tree and WS default/tree layouts, vault dirs are stored outside the
+    project workspace.  The symlink lets the user discover vault via their
+    project directory.  No-op when vault is already under project_path or the
+    symlink target already matches.
+    """
+    vault_parent = vault_ro_path.parent  # e.g. metadata_path/vault or vault_base/name
+    link = project_path / "vault"
+
+    # Vault already lives under project_path — no symlink needed.
+    try:
+        if vault_parent.resolve() == link.resolve():
+            return
+    except OSError:
+        pass
+
+    if link.is_symlink():
+        # Symlink exists — update only if target differs.
+        if link.resolve() == vault_parent.resolve():
+            return
+        link.unlink()
+    elif link.exists():
+        # A real directory or file exists — don't overwrite.
+        return
+
+    try:
+        link.symlink_to(vault_parent)
+    except OSError:
+        pass  # Best-effort; non-fatal if we can't create the symlink.
+
+
 def _init_project(
     std: StandardPaths,
     metadata_path: Path,
-    home_path: Path,
+    shell_path: Path,
     vault_ro_path: Path,
     vault_rw_path: Path,
     project_path: Path,
+    *,
+    vault_enabled: bool = True,
 ) -> None:
     """First-time project setup: create directories, copy credential template."""
     import sys
@@ -209,44 +354,44 @@ def _init_project(
     # Record the original project path for reverse lookup.
     (metadata_path / "project-path.txt").write_text(str(project_path) + "\n")
 
-    # Create persistent agent home.
-    home_path.mkdir(parents=True, exist_ok=True)
-    _bootstrap_shell(home_path)
+    # Create persistent agent shell (mounted as /home/agent).
+    shell_path.mkdir(parents=True, exist_ok=True)
+    _bootstrap_shell(shell_path)
 
-    # Copy credential template into home.
+    # Copy credential template into shell.
     creds = std.credentials_path
     if creds.is_dir():
-        # Copy credentials into home/.claude/ directory structure.
-        _copy_credentials_to_home(creds, home_path)
+        _copy_credentials_to_home(creds, shell_path)
     else:
         # No credential template; create minimal structure.
-        (home_path / ".claude").mkdir(parents=True, exist_ok=True)
-        (home_path / ".claude.json").touch()
+        (shell_path / ".claude").mkdir(parents=True, exist_ok=True)
+        (shell_path / ".claude.json").touch()
 
-    # Vault directories.
-    vault_ro_path.mkdir(parents=True, exist_ok=True)
-    vault_rw_path.mkdir(parents=True, exist_ok=True)
-    # .gitignore in vault/ to exclude share-rw from version control.
-    vault_dir = vault_ro_path.parent
-    gitignore = vault_dir / ".gitignore"
-    if not gitignore.exists():
-        gitignore.write_text("share-rw/\n")
+    # Vault directories (skip when vault is disabled).
+    if vault_enabled:
+        vault_ro_path.mkdir(parents=True, exist_ok=True)
+        vault_rw_path.mkdir(parents=True, exist_ok=True)
+        # .gitignore in vault/ to exclude share-rw from version control.
+        vault_dir = vault_ro_path.parent
+        gitignore = vault_dir / ".gitignore"
+        if not gitignore.exists():
+            gitignore.write_text("share-rw/\n")
 
     print("done.", file=sys.stderr)
 
 
-def _copy_credentials_to_home(creds_source: Path, home_path: Path) -> None:
-    """Copy credential template tree from central store into home directory.
+def _copy_credentials_to_home(creds_source: Path, shell_path: Path) -> None:
+    """Copy credential template tree from central store into shell directory.
 
     The central store has the old layout (dotclaude/.credentials.json, claude.json).
-    This copies into the new natural-path layout (home/.claude/.credentials.json,
-    home/.claude.json).
+    This copies into the natural-path layout (shell/.claude/.credentials.json,
+    shell/.claude.json).
     """
     # Find the dotclaude directory (or whatever paths_dot_path is configured as).
     for child in creds_source.iterdir():
         if child.is_dir():
             # This is the dot_path equivalent (e.g. "dotclaude/")
-            dst_claude = home_path / ".claude"
+            dst_claude = shell_path / ".claude"
             dst_claude.mkdir(parents=True, exist_ok=True)
             # Copy contents (e.g. .credentials.json)
             for item in child.iterdir():
@@ -254,7 +399,7 @@ def _copy_credentials_to_home(creds_source: Path, home_path: Path) -> None:
                     shutil.copy2(str(item), str(dst_claude / item.name))
         elif child.is_file() and child.name != "project-path.txt":
             # This is likely claude.json → .claude.json
-            shutil.copy2(str(child), str(home_path / f".{child.name}" if not child.name.startswith(".") else child.name))
+            shutil.copy2(str(child), str(shell_path / f".{child.name}" if not child.name.startswith(".") else child.name))
 
 
 def detect_project_mode(
@@ -288,14 +433,14 @@ def detect_project_mode(
             except ValueError:
                 continue
 
-    # 2. Account-centric: projects/{hash}/ already exists
+    # 2. Account-centric: settings/{hash}/ already exists
     phash = project_hash(str(project_dir))
-    projects_path = std.data_path / "projects" / phash
-    if projects_path.is_dir():
+    settings_path = std.data_path / "settings" / phash
+    if settings_path.is_dir():
         return ProjectMode.account_centric
 
-    # 3. Decentralized: kanibako directory inside project (no dot prefix)
-    if (project_dir / "kanibako").is_dir():
+    # 3. Decentralized: .kanibako directory inside project
+    if (project_dir / ".kanibako").is_dir():
         return ProjectMode.decentralized
 
     # 4. Default for new projects
@@ -309,6 +454,8 @@ def resolve_workset_project(
     config: KanibakoConfig,
     *,
     initialize: bool = False,
+    layout: ProjectLayout | None = None,
+    vault_enabled: bool | None = None,
 ) -> ProjectPaths:
     """Resolve per-project paths for a project inside a workset.
 
@@ -329,40 +476,68 @@ def resolve_workset_project(
     project_path = ws.workspaces_dir / project_name
     project_dir = ws.projects_dir / project_name
     metadata_path = project_dir
-    home_path = project_dir / "home"
-    vault_ro_path = ws.vault_dir / project_name / "share-ro"
-    vault_rw_path = ws.vault_dir / project_name / "share-rw"
+
+    # Check for stored paths in project.toml (enables user overrides).
+    project_toml = metadata_path / "project.toml"
+    meta = read_project_meta(project_toml)
+    if meta:
+        actual_layout = ProjectLayout(meta["layout"]) if meta.get("layout") else _DEFAULT_LAYOUT[ProjectMode.workset]
+        shell_path = Path(meta["shell"]) if meta["shell"] else project_dir / "shell"
+        vault_ro_path = Path(meta["vault_ro"]) if meta["vault_ro"] else ws.vault_dir / project_name / "share-ro"
+        vault_rw_path = Path(meta["vault_rw"]) if meta["vault_rw"] else ws.vault_dir / project_name / "share-rw"
+        actual_vault_enabled = meta.get("vault_enabled", True) if vault_enabled is None else vault_enabled
+    else:
+        actual_layout = layout or _DEFAULT_LAYOUT[ProjectMode.workset]
+        shell_path, vault_ro_path, vault_rw_path = _compute_ws_paths(
+            actual_layout, metadata_path, project_path, ws.vault_dir, project_name,
+        )
+        actual_vault_enabled = vault_enabled if vault_enabled is not None else True
 
     # Hash the resolved workspace path for container naming.
     phash = project_hash(str(project_path.resolve()))
 
     is_new = False
-    if initialize and not home_path.is_dir():
-        _init_workset_project(std, metadata_path, home_path)
+    if initialize and not shell_path.is_dir():
+        _init_workset_project(std, metadata_path, shell_path)
+        write_project_meta(
+            project_toml,
+            mode="workset",
+            layout=actual_layout.value,
+            workspace=str(project_path),
+            shell=str(shell_path),
+            vault_ro=str(vault_ro_path),
+            vault_rw=str(vault_rw_path),
+            vault_enabled=actual_vault_enabled,
+        )
         is_new = True
 
     if initialize:
-        # Recovery: ensure home exists.
-        if not home_path.is_dir():
-            home_path.mkdir(parents=True, exist_ok=True)
-            _bootstrap_shell(home_path)
+        # Recovery: ensure shell exists.
+        if not shell_path.is_dir():
+            shell_path.mkdir(parents=True, exist_ok=True)
+            _bootstrap_shell(shell_path)
+        # Convenience symlink when vault lives outside the workspace.
+        if actual_vault_enabled:
+            _ensure_vault_symlink(project_path, vault_ro_path)
 
     return ProjectPaths(
         project_path=project_path,
         project_hash=phash,
         metadata_path=metadata_path,
-        home_path=home_path,
+        shell_path=shell_path,
         vault_ro_path=vault_ro_path,
         vault_rw_path=vault_rw_path,
         is_new=is_new,
         mode=ProjectMode.workset,
+        layout=actual_layout,
+        vault_enabled=actual_vault_enabled,
     )
 
 
 def _init_workset_project(
     std: StandardPaths,
     metadata_path: Path,
-    home_path: Path,
+    shell_path: Path,
 ) -> None:
     """First-time workset project setup: copy credentials and bootstrap shell.
 
@@ -381,17 +556,17 @@ def _init_workset_project(
     )
     metadata_path.mkdir(parents=True, exist_ok=True)
 
-    # Create persistent agent home.
-    home_path.mkdir(parents=True, exist_ok=True)
-    _bootstrap_shell(home_path)
+    # Create persistent agent shell (mounted as /home/agent).
+    shell_path.mkdir(parents=True, exist_ok=True)
+    _bootstrap_shell(shell_path)
 
-    # Copy credential template into home.
+    # Copy credential template into shell.
     creds = std.credentials_path
     if creds.is_dir():
-        _copy_credentials_to_home(creds, home_path)
+        _copy_credentials_to_home(creds, shell_path)
     else:
-        (home_path / ".claude").mkdir(parents=True, exist_ok=True)
-        (home_path / ".claude.json").touch()
+        (shell_path / ".claude").mkdir(parents=True, exist_ok=True)
+        (shell_path / ".claude.json").touch()
 
     print("done.", file=sys.stderr)
 
@@ -402,7 +577,7 @@ def iter_projects(std: StandardPaths, config: KanibakoConfig) -> list[tuple[Path
     *project_path* is read from the ``project-path.txt`` breadcrumb when
     available; otherwise it is ``None``.
     """
-    projects_dir = std.data_path / "projects"
+    projects_dir = std.data_path / "settings"
     if not projects_dir.is_dir():
         return []
     results: list[tuple[Path, Path | None]] = []
@@ -517,11 +692,13 @@ def resolve_decentralized_project(
     project_dir: str | None = None,
     *,
     initialize: bool = False,
+    layout: ProjectLayout | None = None,
+    vault_enabled: bool | None = None,
 ) -> ProjectPaths:
     """Resolve (and optionally initialize) per-project paths for decentralized mode.
 
-    All project state lives inside *project_dir* itself (``kanibako/``,
-    ``home/``, ``vault/``).  No data is written to ``$XDG_DATA_HOME``.
+    All project state lives inside *project_dir* itself.
+    No data is written to ``$XDG_DATA_HOME``.
     """
     raw = project_dir or os.getcwd()
     project_path = Path(raw).resolve()
@@ -530,44 +707,95 @@ def resolve_decentralized_project(
         raise ProjectError(f"Project path '{project_path}' does not exist.")
 
     phash = project_hash(str(project_path))
-    metadata_path = project_path / "kanibako"
-    home_path = project_path / "home"
-    vault_ro_path = project_path / "vault" / "share-ro"
-    vault_rw_path = project_path / "vault" / "share-rw"
+
+    # Determine metadata_path (depends on layout for decentralized).
+    # For tree layout: {project}/kanibako (no dot)
+    # For simple (default): {project}/.kanibako (dot prefix)
+    # Check both locations for existing projects.
+    dot_meta = project_path / ".kanibako"
+    nodot_meta = project_path / "kanibako"
+
+    # Check for stored paths in existing metadata.
+    meta = None
+    actual_layout = None
+    if dot_meta.is_dir():
+        meta = read_project_meta(dot_meta / "project.toml")
+        metadata_path = dot_meta
+    elif nodot_meta.is_dir():
+        meta = read_project_meta(nodot_meta / "project.toml")
+        metadata_path = nodot_meta
+    else:
+        # New project — determine layout and metadata_path.
+        actual_layout = layout or _DEFAULT_LAYOUT[ProjectMode.decentralized]
+        if actual_layout == ProjectLayout.tree:
+            metadata_path = nodot_meta
+        else:
+            metadata_path = dot_meta
+
+    if meta:
+        actual_layout = ProjectLayout(meta["layout"]) if meta.get("layout") else _DEFAULT_LAYOUT[ProjectMode.decentralized]
+        shell_path = Path(meta["shell"]) if meta["shell"] else metadata_path / "shell"
+        vault_ro_path = Path(meta["vault_ro"]) if meta["vault_ro"] else project_path / "vault" / "share-ro"
+        vault_rw_path = Path(meta["vault_rw"]) if meta["vault_rw"] else project_path / "vault" / "share-rw"
+        actual_vault_enabled = meta.get("vault_enabled", True) if vault_enabled is None else vault_enabled
+    else:
+        if actual_layout is None:
+            actual_layout = layout or _DEFAULT_LAYOUT[ProjectMode.decentralized]
+        shell_path, vault_ro_path, vault_rw_path = _compute_decentral_paths(
+            actual_layout, metadata_path, project_path,
+        )
+        actual_vault_enabled = vault_enabled if vault_enabled is not None else True
+
+    project_toml = metadata_path / "project.toml"
 
     is_new = False
     if initialize and not metadata_path.is_dir():
         _init_decentralized_project(
-            std, metadata_path, home_path,
+            std, metadata_path, shell_path,
             vault_ro_path, vault_rw_path, project_path,
+            vault_enabled=actual_vault_enabled,
+        )
+        write_project_meta(
+            project_toml,
+            mode="decentralized",
+            layout=actual_layout.value,
+            workspace=str(project_path),
+            shell=str(shell_path),
+            vault_ro=str(vault_ro_path),
+            vault_rw=str(vault_rw_path),
+            vault_enabled=actual_vault_enabled,
         )
         is_new = True
 
     if initialize:
-        # Recovery: ensure home exists.
-        if not home_path.is_dir():
-            home_path.mkdir(parents=True, exist_ok=True)
-            _bootstrap_shell(home_path)
+        # Recovery: ensure shell exists.
+        if not shell_path.is_dir():
+            shell_path.mkdir(parents=True, exist_ok=True)
+            _bootstrap_shell(shell_path)
 
     return ProjectPaths(
         project_path=project_path,
         project_hash=phash,
         metadata_path=metadata_path,
-        home_path=home_path,
+        shell_path=shell_path,
         vault_ro_path=vault_ro_path,
         vault_rw_path=vault_rw_path,
         is_new=is_new,
         mode=ProjectMode.decentralized,
+        layout=actual_layout,
+        vault_enabled=actual_vault_enabled,
     )
 
 
 def _init_decentralized_project(
     std: StandardPaths,
     metadata_path: Path,
-    home_path: Path,
+    shell_path: Path,
     vault_ro_path: Path,
     vault_rw_path: Path,
     project_path: Path,
+    *,
+    vault_enabled: bool = True,
 ) -> None:
     """First-time decentralized project setup: all state inside project dir.
 
@@ -586,25 +814,26 @@ def _init_decentralized_project(
     )
     metadata_path.mkdir(parents=True, exist_ok=True)
 
-    # Create persistent agent home.
-    home_path.mkdir(parents=True, exist_ok=True)
-    _bootstrap_shell(home_path)
+    # Create persistent agent shell (mounted as /home/agent).
+    shell_path.mkdir(parents=True, exist_ok=True)
+    _bootstrap_shell(shell_path)
 
-    # Copy credential template into home.
+    # Copy credential template into shell.
     creds = std.credentials_path
     if creds.is_dir():
-        _copy_credentials_to_home(creds, home_path)
+        _copy_credentials_to_home(creds, shell_path)
     else:
-        (home_path / ".claude").mkdir(parents=True, exist_ok=True)
-        (home_path / ".claude.json").touch()
+        (shell_path / ".claude").mkdir(parents=True, exist_ok=True)
+        (shell_path / ".claude.json").touch()
 
-    # Vault directories.
-    vault_ro_path.mkdir(parents=True, exist_ok=True)
-    vault_rw_path.mkdir(parents=True, exist_ok=True)
-    # .gitignore in vault/ to exclude share-rw from version control.
-    vault_dir = vault_ro_path.parent
-    gitignore = vault_dir / ".gitignore"
-    if not gitignore.exists():
-        gitignore.write_text("share-rw/\n")
+    # Vault directories (skip when vault is disabled).
+    if vault_enabled:
+        vault_ro_path.mkdir(parents=True, exist_ok=True)
+        vault_rw_path.mkdir(parents=True, exist_ok=True)
+        # .gitignore in vault/ to exclude share-rw from version control.
+        vault_dir = vault_ro_path.parent
+        gitignore = vault_dir / ".gitignore"
+        if not gitignore.exists():
+            gitignore.write_text("share-rw/\n")
 
     print("done.", file=sys.stderr)

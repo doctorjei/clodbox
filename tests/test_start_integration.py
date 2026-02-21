@@ -147,7 +147,7 @@ class TestCredentialFlow:
         host_creds.write_text(json.dumps(host_token))
 
         central_creds = std.credentials_path / config.paths_dot_path / ".credentials.json"
-        project_creds = proj.home_path / ".claude" / ".credentials.json"
+        project_creds = proj.shell_path / ".claude" / ".credentials.json"
 
         # Ensure central is older so host copy goes through
         refresh_host_to_central(central_creds)
@@ -174,7 +174,7 @@ class TestCredentialFlow:
         proj = resolve_project(std, config, initialize=True)
 
         central_creds = std.credentials_path / config.paths_dot_path / ".credentials.json"
-        project_creds = proj.home_path / ".claude" / ".credentials.json"
+        project_creds = proj.shell_path / ".claude" / ".credentials.json"
 
         # Write central credentials
         central_creds.parent.mkdir(parents=True, exist_ok=True)

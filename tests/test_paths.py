@@ -9,7 +9,9 @@ import pytest
 from kanibako.config import KanibakoConfig, load_config
 from kanibako.errors import ConfigError, ProjectError, WorksetError
 from kanibako.paths import (
+    ProjectLayout,
     ProjectMode,
+    _ensure_vault_symlink,
     _find_workset_for_path,
     detect_project_mode,
     load_std_paths,
@@ -57,7 +59,7 @@ class TestResolveProject:
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
 
         assert proj.metadata_path.is_dir()
-        assert proj.home_path.is_dir()
+        assert proj.shell_path.is_dir()
         assert proj.is_new
 
     def test_nonexistent_path_raises(self, config_file, tmp_home):
@@ -86,6 +88,135 @@ class TestResolveProject:
         assert proj.mode is ProjectMode.account_centric
 
 
+class TestProjectMeta:
+    """Tests for project metadata storage in project.toml (Phase 1b)."""
+
+    def test_init_writes_project_toml(self, config_file, tmp_home, credentials_dir):
+        """resolve_project(initialize=True) writes metadata to project.toml."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = str(tmp_home / "project")
+        proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
+
+        project_toml = proj.metadata_path / "project.toml"
+        assert project_toml.is_file()
+
+        from kanibako.config import read_project_meta
+        meta = read_project_meta(project_toml)
+        assert meta is not None
+        assert meta["mode"] == "account_centric"
+        assert meta["workspace"] == str(proj.project_path)
+        assert meta["shell"] == str(proj.shell_path)
+        assert meta["vault_ro"] == str(proj.vault_ro_path)
+        assert meta["vault_rw"] == str(proj.vault_rw_path)
+
+    def test_no_meta_without_initialize(self, config_file, tmp_home):
+        """resolve_project(initialize=False) does not write project.toml."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = str(tmp_home / "project")
+        proj = resolve_project(std, config, project_dir=project_dir, initialize=False)
+
+        project_toml = proj.metadata_path / "project.toml"
+        assert not project_toml.exists()
+
+    def test_stored_paths_used_on_subsequent_access(self, config_file, tmp_home, credentials_dir):
+        """Subsequent resolve reads stored paths from project.toml."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = str(tmp_home / "project")
+        proj1 = resolve_project(std, config, project_dir=project_dir, initialize=True)
+
+        # Resolve again (not new)
+        proj2 = resolve_project(std, config, project_dir=project_dir, initialize=False)
+        assert proj2.shell_path == proj1.shell_path
+        assert proj2.vault_ro_path == proj1.vault_ro_path
+        assert proj2.vault_rw_path == proj1.vault_rw_path
+
+    def test_stored_path_override(self, config_file, tmp_home, credentials_dir):
+        """User can override shell_path by editing project.toml."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = str(tmp_home / "project")
+        proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
+
+        # Override shell path in project.toml
+        custom_shell = tmp_home / "custom_shell"
+        from kanibako.config import write_project_meta
+        write_project_meta(
+            proj.metadata_path / "project.toml",
+            mode="account_centric",
+            layout="default",
+            workspace=str(proj.project_path),
+            shell=str(custom_shell),
+            vault_ro=str(proj.vault_ro_path),
+            vault_rw=str(proj.vault_rw_path),
+        )
+
+        proj2 = resolve_project(std, config, project_dir=project_dir, initialize=False)
+        assert proj2.shell_path == custom_shell
+
+    def test_decentralized_init_writes_meta(self, config_file, tmp_home, credentials_dir):
+        """resolve_decentralized_project(initialize=True) writes metadata."""
+        from kanibako.paths import resolve_decentralized_project
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = str(tmp_home / "project")
+        proj = resolve_decentralized_project(std, config, project_dir=project_dir, initialize=True)
+
+        project_toml = proj.metadata_path / "project.toml"
+        assert project_toml.is_file()
+
+        from kanibako.config import read_project_meta
+        meta = read_project_meta(project_toml)
+        assert meta is not None
+        assert meta["mode"] == "decentralized"
+        assert meta["workspace"] == str(proj.project_path)
+
+    def test_workset_init_writes_meta(self, config_file, tmp_home, credentials_dir):
+        """resolve_workset_project(initialize=True) writes metadata."""
+        from kanibako.paths import resolve_workset_project
+        from kanibako.workset import add_project, create_workset
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        ws_root = tmp_home / "worksets" / "meta-ws"
+        ws = create_workset("meta-ws", ws_root, std)
+        add_project(ws, "metaproj", tmp_home / "project")
+
+        proj = resolve_workset_project(ws, "metaproj", std, config, initialize=True)
+
+        project_toml = proj.metadata_path / "project.toml"
+        assert project_toml.is_file()
+
+        from kanibako.config import read_project_meta
+        meta = read_project_meta(project_toml)
+        assert meta is not None
+        assert meta["mode"] == "workset"
+
+    def test_meta_preserves_existing_config(self, config_file, tmp_home, credentials_dir):
+        """write_project_meta preserves existing [container] section."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = str(tmp_home / "project")
+        proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
+
+        # Write a container image override
+        project_toml = proj.metadata_path / "project.toml"
+        from kanibako.config import write_project_config
+        write_project_config(project_toml, "custom-image:v1")
+
+        # Re-read — image should be there alongside metadata
+        from kanibako.config import load_merged_config
+        merged = load_merged_config(config_file, project_toml)
+        assert merged.container_image == "custom-image:v1"
+
+        # Metadata should also be intact
+        from kanibako.config import read_project_meta
+        meta = read_project_meta(project_toml)
+        assert meta is not None
+        assert meta["mode"] == "account_centric"
+
+
 class TestDetectProjectMode:
     def test_account_centric_when_projects_dir_exists(self, config_file, tmp_home, credentials_dir):
         config = load_config(config_file)
@@ -101,7 +232,7 @@ class TestDetectProjectMode:
         config = load_config(config_file)
         std = load_std_paths(config)
         project_dir = tmp_home / "project"
-        (project_dir / "kanibako").mkdir()
+        (project_dir / ".kanibako").mkdir()
 
         mode = detect_project_mode(project_dir.resolve(), std, config)
         assert mode is ProjectMode.decentralized
@@ -117,22 +248,22 @@ class TestDetectProjectMode:
     def test_account_centric_takes_priority_over_decentralized(
         self, config_file, tmp_home, credentials_dir
     ):
-        """When both projects/{hash}/ and kanibako exist, account-centric wins."""
+        """When both settings/{hash}/ and .kanibako exist, account-centric wins."""
         config = load_config(config_file)
         std = load_std_paths(config)
         project_dir = tmp_home / "project"
         resolve_project(std, config, project_dir=str(project_dir), initialize=True)
-        (project_dir / "kanibako").mkdir(exist_ok=True)
+        (project_dir / ".kanibako").mkdir(exist_ok=True)
 
         mode = detect_project_mode(project_dir.resolve(), std, config)
         assert mode is ProjectMode.account_centric
 
     def test_kanibako_file_not_dir_is_not_decentralized(self, config_file, tmp_home):
-        """A kanibako *file* (not directory) should not trigger decentralized mode."""
+        """A .kanibako *file* (not directory) should not trigger decentralized mode."""
         config = load_config(config_file)
         std = load_std_paths(config)
         project_dir = tmp_home / "project"
-        (project_dir / "kanibako").write_text("not a directory")
+        (project_dir / ".kanibako").write_text("not a directory")
 
         mode = detect_project_mode(project_dir.resolve(), std, config)
         assert mode is ProjectMode.account_centric
@@ -183,16 +314,16 @@ class TestResolveAnyProject:
         assert proj.metadata_path.is_dir()
 
     def test_resolve_any_project_decentralized(self, config_file, tmp_home):
-        """Dispatches to resolve_decentralized_project when kanibako/ exists."""
+        """Dispatches to resolve_decentralized_project when .kanibako/ exists."""
         config = load_config(config_file)
         std = load_std_paths(config)
         project_dir = tmp_home / "project"
-        (project_dir / "kanibako").mkdir()
+        (project_dir / ".kanibako").mkdir()
 
         proj = resolve_any_project(std, config, project_dir=str(project_dir), initialize=False)
 
         assert proj.mode is ProjectMode.decentralized
-        assert proj.metadata_path == project_dir.resolve() / "kanibako"
+        assert proj.metadata_path == project_dir.resolve() / ".kanibako"
 
     def test_resolve_any_project_default_cwd(self, config_file, tmp_home, credentials_dir):
         """Uses cwd when project_dir is None."""
@@ -220,7 +351,7 @@ class TestResolveAnyProject:
 
         assert proj.mode is ProjectMode.workset
         assert proj.metadata_path == ws.projects_dir / "myproj"
-        assert proj.home_path == ws.projects_dir / "myproj" / "home"
+        assert proj.shell_path == ws.projects_dir / "myproj" / "shell"
 
     def test_resolve_any_project_workset_subdirectory(self, config_file, tmp_home):
         """cwd is workspaces/proj/src/, still resolves correctly."""
@@ -240,7 +371,7 @@ class TestResolveAnyProject:
         assert proj.project_path == ws.workspaces_dir / "myproj"
 
     def test_resolve_any_project_workset_initializes(self, config_file, tmp_home, credentials_dir):
-        """initialize=True creates home_path etc. for workset project."""
+        """initialize=True creates shell_path etc. for workset project."""
         config = load_config(config_file)
         std = load_std_paths(config)
 
@@ -253,8 +384,8 @@ class TestResolveAnyProject:
         proj = resolve_any_project(std, config, project_dir=str(proj_dir), initialize=True)
 
         assert proj.mode is ProjectMode.workset
-        assert proj.home_path.is_dir()
-        assert (proj.home_path / ".claude").is_dir()
+        assert proj.shell_path.is_dir()
+        assert (proj.shell_path / ".claude").is_dir()
 
 
 class TestFindWorksetForPath:
@@ -281,3 +412,117 @@ class TestFindWorksetForPath:
 
         with pytest.raises(WorksetError, match="No workset found"):
             _find_workset_for_path(tmp_home / "random" / "dir", std)
+
+
+class TestEnsureVaultSymlink:
+    """Tests for _ensure_vault_symlink convenience symlink."""
+
+    def test_creates_symlink_when_vault_outside_project(self, tmp_path):
+        """Symlink created when vault lives outside the project."""
+        project = tmp_path / "project"
+        project.mkdir()
+        remote_vault = tmp_path / "settings" / "abc" / "vault"
+        vault_ro = remote_vault / "share-ro"
+        vault_ro.mkdir(parents=True)
+
+        _ensure_vault_symlink(project, vault_ro)
+
+        link = project / "vault"
+        assert link.is_symlink()
+        assert link.resolve() == remote_vault.resolve()
+
+    def test_noop_when_vault_inside_project(self, tmp_path):
+        """No symlink created when vault is already under project_path."""
+        project = tmp_path / "project"
+        vault = project / "vault"
+        vault_ro = vault / "share-ro"
+        vault_ro.mkdir(parents=True)
+
+        _ensure_vault_symlink(project, vault_ro)
+
+        assert not (project / "vault").is_symlink()
+        assert (project / "vault").is_dir()
+
+    def test_noop_when_vault_dir_exists(self, tmp_path):
+        """Existing real vault/ directory is not overwritten."""
+        project = tmp_path / "project"
+        project.mkdir()
+        existing_vault = project / "vault"
+        existing_vault.mkdir()
+        (existing_vault / "my-data").touch()
+
+        remote_vault = tmp_path / "remote" / "vault"
+        vault_ro = remote_vault / "share-ro"
+        vault_ro.mkdir(parents=True)
+
+        _ensure_vault_symlink(project, vault_ro)
+
+        assert not existing_vault.is_symlink()
+        assert (existing_vault / "my-data").exists()
+
+    def test_updates_stale_symlink(self, tmp_path):
+        """Stale symlink is updated to point to new target."""
+        project = tmp_path / "project"
+        project.mkdir()
+        old_target = tmp_path / "old" / "vault"
+        old_target.mkdir(parents=True)
+        link = project / "vault"
+        link.symlink_to(old_target)
+
+        new_target = tmp_path / "new" / "vault"
+        vault_ro = new_target / "share-ro"
+        vault_ro.mkdir(parents=True)
+
+        _ensure_vault_symlink(project, vault_ro)
+
+        assert link.is_symlink()
+        assert link.resolve() == new_target.resolve()
+
+    def test_idempotent_when_symlink_matches(self, tmp_path):
+        """No change when symlink already points to correct target."""
+        project = tmp_path / "project"
+        project.mkdir()
+        remote_vault = tmp_path / "settings" / "vault"
+        vault_ro = remote_vault / "share-ro"
+        vault_ro.mkdir(parents=True)
+
+        link = project / "vault"
+        link.symlink_to(remote_vault)
+
+        _ensure_vault_symlink(project, vault_ro)
+
+        assert link.is_symlink()
+        assert link.resolve() == remote_vault.resolve()
+
+    def test_ac_tree_layout_creates_symlink(self, config_file, tmp_home, credentials_dir):
+        """resolve_project with tree layout creates vault symlink."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = str(tmp_home / "project")
+
+        proj = resolve_project(
+            std, config, project_dir=project_dir,
+            initialize=True, layout=ProjectLayout.tree,
+        )
+
+        # Vault dirs should be under metadata_path, not project_path.
+        assert "settings" in str(proj.vault_ro_path)
+
+        # Symlink should exist at project_path/vault.
+        link = proj.project_path / "vault"
+        assert link.is_symlink()
+        assert (link / "share-ro").is_dir()
+
+    def test_ac_default_layout_no_symlink(self, config_file, tmp_home, credentials_dir):
+        """resolve_project with default layout does not create symlink."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = str(tmp_home / "project")
+
+        proj = resolve_project(
+            std, config, project_dir=project_dir, initialize=True,
+        )
+
+        link = proj.project_path / "vault"
+        assert not link.is_symlink()
+        assert link.is_dir()

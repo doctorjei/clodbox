@@ -153,8 +153,8 @@ class TestDecentralizedLaunch:
         proj.mode = ProjectMode.decentralized
         proj.project_path = project_path
         proj.project_hash = "abc123"
-        proj.metadata_path = project_path / "kanibako"
-        proj.home_path = project_path / "home"
+        proj.metadata_path = project_path / ".kanibako"
+        proj.shell_path = project_path / ".kanibako" / "shell"
         proj.vault_ro_path = project_path / "vault" / "share-ro"
         proj.vault_rw_path = project_path / "vault" / "share-rw"
         return proj
@@ -165,7 +165,7 @@ class TestDecentralizedLaunch:
 
         project = tmp_path / "myproject"
         project.mkdir()
-        (project / "kanibako").mkdir()
+        (project / ".kanibako").mkdir()
 
         with start_mocks() as m:
             proj = self._make_decentralized_proj(project)
@@ -186,7 +186,7 @@ class TestDecentralizedLaunch:
 
         project = tmp_path / "myproject"
         project.mkdir()
-        kanibako_dir = project / "kanibako"
+        kanibako_dir = project / ".kanibako"
         kanibako_dir.mkdir()
 
         with start_mocks() as m:
@@ -210,7 +210,7 @@ class TestDecentralizedLaunch:
 
         project = tmp_path / "myproject"
         project.mkdir()
-        (project / "kanibako").mkdir()
+        (project / ".kanibako").mkdir()
 
         with start_mocks() as m:
             proj = self._make_decentralized_proj(project)
@@ -223,18 +223,18 @@ class TestDecentralizedLaunch:
             )
 
         call_kwargs = m.runtime.run.call_args.kwargs
-        assert call_kwargs["home_path"] == project / "home"
+        assert call_kwargs["shell_path"] == project / ".kanibako" / "shell"
         assert call_kwargs["project_path"] == project
         assert call_kwargs["vault_ro_path"] == project / "vault" / "share-ro"
         assert call_kwargs["vault_rw_path"] == project / "vault" / "share-rw"
 
     def test_start_decentralized_credential_flow(self, start_mocks, tmp_path):
-        """Credential refresh uses target.refresh_credentials with home_path."""
+        """Credential refresh uses target.refresh_credentials with shell_path."""
         from kanibako.commands.start import _run_container
 
         project = tmp_path / "myproject"
         project.mkdir()
-        (project / "kanibako").mkdir()
+        (project / ".kanibako").mkdir()
 
         with start_mocks() as m:
             proj = self._make_decentralized_proj(project)
@@ -246,11 +246,11 @@ class TestDecentralizedLaunch:
                 extra_args=[],
             )
 
-        # target.refresh_credentials called with home_path
-        m.target.refresh_credentials.assert_called_once_with(project / "home")
+        # target.refresh_credentials called with shell_path
+        m.target.refresh_credentials.assert_called_once_with(project / ".kanibako" / "shell")
 
-        # target.writeback_credentials called with home_path
-        m.target.writeback_credentials.assert_called_once_with(project / "home")
+        # target.writeback_credentials called with shell_path
+        m.target.writeback_credentials.assert_called_once_with(project / ".kanibako" / "shell")
 
     def test_shell_works_with_decentralized(self, start_mocks, tmp_path):
         """shell auto-detects decentralized mode via resolve_any_project."""
@@ -258,7 +258,7 @@ class TestDecentralizedLaunch:
 
         import argparse
         args = argparse.Namespace(project=str(tmp_path), entrypoint=None)
-        (tmp_path / "kanibako").mkdir()
+        (tmp_path / ".kanibako").mkdir()
 
         with start_mocks() as m:
             proj = self._make_decentralized_proj(tmp_path)
@@ -275,7 +275,7 @@ class TestDecentralizedLaunch:
 
         import argparse
         args = argparse.Namespace(project=str(tmp_path), safe=False)
-        (tmp_path / "kanibako").mkdir()
+        (tmp_path / ".kanibako").mkdir()
 
         with start_mocks() as m:
             proj = self._make_decentralized_proj(tmp_path)
@@ -310,7 +310,7 @@ class TestDecentralizedLaunch:
 
         project = tmp_path / "myproject"
         project.mkdir()
-        (project / "kanibako").mkdir()
+        (project / ".kanibako").mkdir()
 
         with start_mocks() as m:
             proj = self._make_decentralized_proj(project)
@@ -341,8 +341,8 @@ class TestWorksetLaunch:
         proj.mode = ProjectMode.workset
         proj.project_path = ws_root / "workspaces" / project_name
         proj.project_hash = "ws123abc"
-        proj.metadata_path = ws_root / "projects" / project_name
-        proj.home_path = ws_root / "projects" / project_name / "home"
+        proj.metadata_path = ws_root / "kanibako" / project_name
+        proj.shell_path = ws_root / "kanibako" / project_name / "shell"
         proj.vault_ro_path = ws_root / "vault" / project_name / "share-ro"
         proj.vault_rw_path = ws_root / "vault" / project_name / "share-rw"
         return proj
@@ -411,13 +411,13 @@ class TestWorksetLaunch:
             )
 
         call_kwargs = m.runtime.run.call_args.kwargs
-        assert call_kwargs["home_path"] == ws_root / "projects" / "myproj" / "home"
+        assert call_kwargs["shell_path"] == ws_root / "kanibako" / "myproj" / "shell"
         assert call_kwargs["project_path"] == ws_root / "workspaces" / "myproj"
         assert call_kwargs["vault_ro_path"] == ws_root / "vault" / "myproj" / "share-ro"
         assert call_kwargs["vault_rw_path"] == ws_root / "vault" / "myproj" / "share-rw"
 
     def test_start_workset_credential_flow(self, start_mocks, tmp_path):
-        """Credential refresh uses target with workset home_path."""
+        """Credential refresh uses target with workset shell_path."""
         from kanibako.commands.start import _run_container
 
         ws_root = tmp_path / "my-workset"
@@ -435,14 +435,14 @@ class TestWorksetLaunch:
                 extra_args=[],
             )
 
-        # target.refresh_credentials called with home_path
+        # target.refresh_credentials called with shell_path
         m.target.refresh_credentials.assert_called_once_with(
-            ws_root / "projects" / "myproj" / "home"
+            ws_root / "kanibako" / "myproj" / "shell"
         )
 
-        # target.writeback_credentials called with home_path
+        # target.writeback_credentials called with shell_path
         m.target.writeback_credentials.assert_called_once_with(
-            ws_root / "projects" / "myproj" / "home"
+            ws_root / "kanibako" / "myproj" / "shell"
         )
 
     def test_shell_works_with_workset(self, start_mocks, tmp_path):

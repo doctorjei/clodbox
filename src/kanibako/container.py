@@ -177,12 +177,13 @@ class ContainerRuntime:
         self,
         image: str,
         *,
-        home_path: Path,
+        shell_path: Path,
         project_path: Path,
         vault_ro_path: Path,
         vault_rw_path: Path,
         extra_mounts: list | None = None,
         vault_tmpfs: bool = False,
+        vault_enabled: bool = True,
         name: str | None = None,
         entrypoint: str | None = None,
         cli_args: list[str] | None = None,
@@ -191,23 +192,20 @@ class ContainerRuntime:
         cmd: list[str] = [
             self.cmd, "run", "-it", "--rm", "--userns=keep-id",
             # Persistent agent home
-            "-v", f"{home_path}:/home/agent:Z,U",
+            "-v", f"{shell_path}:/home/agent:Z,U",
             # Project workspace
             "-v", f"{project_path}:/home/agent/workspace:Z,U",
             "-w", "/home/agent/workspace",
         ]
-        # Vault mounts (only if directories exist)
-        if vault_ro_path.is_dir():
-            cmd += ["-v", f"{vault_ro_path}:/home/agent/share-ro:ro"]
-        else:
-            print(f"Note: Vault read-only directory not found ({vault_ro_path}), skipping mount.", file=sys.stderr)
-        if vault_rw_path.is_dir():
-            cmd += ["-v", f"{vault_rw_path}:/home/agent/share-rw:Z,U"]
-        else:
-            print(f"Note: Vault read-write directory not found ({vault_rw_path}), skipping mount.", file=sys.stderr)
-        # AC vault hiding: read-only tmpfs over workspace/vault
-        if vault_tmpfs:
-            cmd += ["--mount", "type=tmpfs,dst=/home/agent/workspace/vault,ro"]
+        # Vault mounts (only if directories exist and vault is enabled)
+        if vault_enabled:
+            if vault_ro_path.is_dir():
+                cmd += ["-v", f"{vault_ro_path}:/home/agent/share-ro:ro"]
+            if vault_rw_path.is_dir():
+                cmd += ["-v", f"{vault_rw_path}:/home/agent/share-rw:Z,U"]
+            # AC vault hiding: read-only tmpfs over workspace/vault
+            if vault_tmpfs:
+                cmd += ["--mount", "type=tmpfs,dst=/home/agent/workspace/vault,ro"]
         # Extra mounts (target binary mounts, etc.)
         if extra_mounts:
             for mount in extra_mounts:
