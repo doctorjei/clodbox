@@ -200,8 +200,8 @@ class TestDecentralizedLaunch:
             )
 
         assert rc == 0
-        # The lock file path derives from proj.settings_path / ".kanibako.lock"
-        # which is project/.kanibako/.kanibako.lock
+        # The lock file path derives from proj.metadata_path / ".kanibako.lock"
+        # which is project/kanibako/.kanibako.lock
         m.fcntl.flock.assert_called()
 
     def test_start_decentralized_passes_correct_paths(self, start_mocks, tmp_path):

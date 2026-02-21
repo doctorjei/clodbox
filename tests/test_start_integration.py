@@ -33,7 +33,7 @@ class TestRealFcntlLocking:
         std = load_std_paths(config)
         proj = resolve_project(std, config, initialize=True)
 
-        lock_file = proj.settings_path / ".kanibako.lock"
+        lock_file = proj.metadata_path / ".kanibako.lock"
         lock_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Acquire lock
@@ -61,7 +61,7 @@ class TestRealFcntlLocking:
         std = load_std_paths(config)
         proj = resolve_project(std, config, initialize=True)
 
-        lock_file = proj.settings_path / ".kanibako.lock"
+        lock_file = proj.metadata_path / ".kanibako.lock"
         lock_file.parent.mkdir(parents=True, exist_ok=True)
 
         fd1 = open(lock_file, "w")
@@ -100,7 +100,7 @@ class TestRealFcntlLocking:
         std = load_std_paths(config)
         proj = resolve_project(std, config, initialize=True)
 
-        lock_file = proj.settings_path / ".kanibako.lock"
+        lock_file = proj.metadata_path / ".kanibako.lock"
         lock_file.parent.mkdir(parents=True, exist_ok=True)
 
         fd = open(lock_file, "w")
@@ -147,7 +147,7 @@ class TestCredentialFlow:
         host_creds.write_text(json.dumps(host_token))
 
         central_creds = std.credentials_path / config.paths_dot_path / ".credentials.json"
-        project_creds = proj.dot_path / ".credentials.json"
+        project_creds = proj.home_path / ".claude" / ".credentials.json"
 
         # Ensure central is older so host copy goes through
         refresh_host_to_central(central_creds)
@@ -174,7 +174,7 @@ class TestCredentialFlow:
         proj = resolve_project(std, config, initialize=True)
 
         central_creds = std.credentials_path / config.paths_dot_path / ".credentials.json"
-        project_creds = proj.dot_path / ".credentials.json"
+        project_creds = proj.home_path / ".claude" / ".credentials.json"
 
         # Write central credentials
         central_creds.parent.mkdir(parents=True, exist_ok=True)
