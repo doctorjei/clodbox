@@ -49,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
         add_parser as add_migrate_parser,
     )
     from kanibako.commands.init import add_init_parser, add_new_parser
+    from kanibako.commands.workset_cmd import add_parser as add_workset_parser
 
     add_start_parser(subparsers)
     add_shell_parser(subparsers)
@@ -57,6 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_config_parser(subparsers)
     add_image_parser(subparsers)
     add_box_parser(subparsers)
+    add_workset_parser(subparsers)
     add_setup_parser(subparsers)
     add_remove_parser(subparsers)
     add_upgrade_parser(subparsers)
@@ -70,7 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 _SUBCOMMANDS = {
     "start", "shell", "resume", "stop", "config", "image",
-    "box", "setup", "remove", "upgrade", "refresh-creds",
+    "box", "workset", "setup", "remove", "upgrade", "refresh-creds",
     "migrate-from-clodbox", "init", "new",
 }
 

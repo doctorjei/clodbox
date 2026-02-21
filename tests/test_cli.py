@@ -270,3 +270,57 @@ class TestParser:
         args = parser.parse_args(["box", "info", "/tmp/myproject"])
         assert args.box_command == "info"
         assert args.path == "/tmp/myproject"
+
+    def test_workset_command(self):
+        parser = build_parser()
+        args = parser.parse_args(["workset"])
+        assert args.command == "workset"
+
+    def test_workset_create(self):
+        parser = build_parser()
+        args = parser.parse_args(["workset", "create", "myws", "/tmp/ws"])
+        assert args.command == "workset"
+        assert args.workset_command == "create"
+        assert args.name == "myws"
+        assert args.path == "/tmp/ws"
+
+    def test_workset_list(self):
+        parser = build_parser()
+        args = parser.parse_args(["workset", "list"])
+        assert args.command == "workset"
+        assert args.workset_command == "list"
+
+    def test_workset_delete(self):
+        parser = build_parser()
+        args = parser.parse_args(["workset", "delete", "myws", "--remove-files", "--force"])
+        assert args.command == "workset"
+        assert args.workset_command == "delete"
+        assert args.name == "myws"
+        assert args.remove_files is True
+        assert args.force is True
+
+    def test_workset_add(self):
+        parser = build_parser()
+        args = parser.parse_args(["workset", "add", "myws", "/tmp/src", "--name", "proj"])
+        assert args.command == "workset"
+        assert args.workset_command == "add"
+        assert args.workset == "myws"
+        assert args.source == "/tmp/src"
+        assert args.project_name == "proj"
+
+    def test_workset_remove(self):
+        parser = build_parser()
+        args = parser.parse_args(["workset", "remove", "myws", "proj", "--remove-files", "--force"])
+        assert args.command == "workset"
+        assert args.workset_command == "remove"
+        assert args.workset == "myws"
+        assert args.project == "proj"
+        assert args.remove_files is True
+        assert args.force is True
+
+    def test_workset_info(self):
+        parser = build_parser()
+        args = parser.parse_args(["workset", "info", "myws"])
+        assert args.command == "workset"
+        assert args.workset_command == "info"
+        assert args.name == "myws"
