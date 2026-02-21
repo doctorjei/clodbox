@@ -133,34 +133,44 @@ def _archive_one(std, config, proj, *, output_file, args) -> int:
 
 def _archive_all(std, config, args) -> int:
     """Archive session data for all known projects."""
-    from kanibako.paths import iter_projects
+    from kanibako.paths import iter_projects, iter_workset_projects, resolve_project, resolve_workset_project
 
     projects = iter_projects(std, config)
-    if not projects:
+    ws_data = iter_workset_projects(std, config)
+
+    if not projects and not ws_data:
         print("No project session data found.")
         return 0
 
-    print(f"Found {len(projects)} project(s) to archive:")
+    total = len(projects)
+    for _, _, project_list in ws_data:
+        total += sum(1 for _, status in project_list if status != "no-data")
+
+    print(f"Found {total} project(s) to archive:")
     for settings_path, project_path in projects:
         h8 = short_hash(settings_path.name)
         label = str(project_path) if project_path else f"(unknown) {h8}"
         print(f"  {label}")
+    for ws_name, ws, project_list in ws_data:
+        for proj_name, status in project_list:
+            if status != "no-data":
+                print(f"  {ws_name}/{proj_name}")
     print()
 
     archived = 0
     failed = 0
+
+    # Account-centric projects.
     for settings_path, project_path in projects:
         phash = settings_path.name
         h8 = short_hash(phash)
 
         if project_path:
-            # Build a ProjectPaths-like object via resolve_project
             try:
                 proj = resolve_project(
                     std, config, project_dir=str(project_path), initialize=False
                 )
             except Exception:
-                # Project path no longer exists; build a minimal stand-in
                 proj = _stub_project(settings_path, phash, project_path, config)
         else:
             proj = _stub_project(settings_path, phash, None, config)
@@ -170,6 +180,22 @@ def _archive_all(std, config, args) -> int:
             archived += 1
         else:
             failed += 1
+
+    # Workset projects.
+    for ws_name, ws, project_list in ws_data:
+        for proj_name, status in project_list:
+            if status == "no-data":
+                continue
+            try:
+                proj = resolve_workset_project(ws, proj_name, std, config, initialize=False)
+            except Exception:
+                failed += 1
+                continue
+            rc = _archive_one(std, config, proj, output_file=None, args=args)
+            if rc == 0:
+                archived += 1
+            else:
+                failed += 1
 
     print(f"\nArchived {archived} project(s).", end="")
     if failed:

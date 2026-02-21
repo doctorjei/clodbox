@@ -76,18 +76,28 @@ def _purge_one(std, config, path: str, *, force: bool) -> int:
 
 def _purge_all(std, config, *, force: bool) -> int:
     """Purge session data for all known projects."""
-    from kanibako.paths import iter_projects
+    from kanibako.paths import iter_projects, iter_workset_projects
 
     projects = iter_projects(std, config)
-    if not projects:
+    ws_data = iter_workset_projects(std, config)
+
+    if not projects and not ws_data:
         print("No project session data found.")
         return 0
 
-    print(f"Found {len(projects)} project(s):")
+    total = len(projects)
+    for _, _, project_list in ws_data:
+        total += sum(1 for _, status in project_list if status != "no-data")
+
+    print(f"Found {total} project(s):")
     for settings_path, project_path in projects:
         h8 = short_hash(settings_path.name)
         label = str(project_path) if project_path else f"(unknown) {h8}"
         print(f"  {label}")
+    for ws_name, ws, project_list in ws_data:
+        for proj_name, status in project_list:
+            if status != "no-data":
+                print(f"  {ws_name}/{proj_name}")
     print()
 
     if not force:
@@ -102,12 +112,27 @@ def _purge_all(std, config, *, force: bool) -> int:
             return 2
 
     removed = 0
+
+    # Account-centric projects.
     for settings_path, project_path in projects:
         label = str(project_path) if project_path else short_hash(settings_path.name)
         print(f"Removing {label}... ", end="", flush=True)
         shutil.rmtree(settings_path)
         print("done.")
         removed += 1
+
+    # Workset projects.
+    for ws_name, ws, project_list in ws_data:
+        for proj_name, status in project_list:
+            if status == "no-data":
+                continue
+            settings_dir = ws.settings_dir / proj_name
+            if settings_dir.is_dir():
+                label = f"{ws_name}/{proj_name}"
+                print(f"Removing {label}... ", end="", flush=True)
+                shutil.rmtree(settings_dir)
+                print("done.")
+                removed += 1
 
     print(f"\nPurged session data for {removed} project(s).")
     return 0

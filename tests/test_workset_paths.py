@@ -228,3 +228,56 @@ class TestWorksetProjectCredentialFlow:
 
         updated = json.loads(project_creds.read_text())
         assert updated["claudeAiOauth"]["token"] == "refreshed-token"
+
+
+# ---------------------------------------------------------------------------
+# TestIterWorksetProjects
+# ---------------------------------------------------------------------------
+
+class TestIterWorksetProjects:
+    def test_iter_workset_projects_normal(self, std, config, tmp_home):
+        from kanibako.paths import iter_workset_projects
+
+        ws_root = tmp_home / "worksets" / "iter-set"
+        ws = create_workset("iter-set", ws_root, std)
+        source = tmp_home / "iter-src"
+        source.mkdir()
+        add_project(ws, "proj-a", source)
+
+        results = iter_workset_projects(std, config)
+        assert len(results) == 1
+        ws_name, ws_obj, project_list = results[0]
+        assert ws_name == "iter-set"
+        assert len(project_list) == 1
+        assert project_list[0] == ("proj-a", "ok")
+
+    def test_iter_workset_projects_missing_workspace(self, std, config, tmp_home):
+        import shutil
+        from kanibako.paths import iter_workset_projects
+
+        ws_root = tmp_home / "worksets" / "miss-set"
+        ws = create_workset("miss-set", ws_root, std)
+        source = tmp_home / "miss-src"
+        source.mkdir()
+        add_project(ws, "miss-proj", source)
+        # Remove workspace dir
+        shutil.rmtree(ws.workspaces_dir / "miss-proj")
+
+        results = iter_workset_projects(std, config)
+        assert len(results) == 1
+        _, _, project_list = results[0]
+        assert project_list[0] == ("miss-proj", "missing")
+
+    def test_iter_workset_projects_missing_root(self, std, config, tmp_home, capsys):
+        import shutil
+        from kanibako.paths import iter_workset_projects
+
+        ws_root = tmp_home / "worksets" / "gone-set"
+        create_workset("gone-set", ws_root, std)
+        shutil.rmtree(ws_root)
+
+        results = iter_workset_projects(std, config)
+        # Gone workset produces warning, no entries
+        assert len(results) == 0
+        err = capsys.readouterr().err
+        assert "Warning" in err

@@ -416,6 +416,57 @@ def iter_projects(std: StandardPaths, config: KanibakoConfig) -> list[tuple[Path
     return results
 
 
+def iter_workset_projects(
+    std: StandardPaths,
+    config: KanibakoConfig,
+) -> list[tuple[str, "Workset", list[tuple[str, str]]]]:
+    """Return workset project info for all registered worksets.
+
+    Each entry is ``(workset_name, workset, [(project_name, status), ...])``.
+    Status is ``"ok"``, ``"missing"`` (no workspace), or ``"no-data"``
+    (no settings).
+    """
+    import sys
+
+    from kanibako.workset import list_worksets, load_workset
+
+    registry = list_worksets(std)
+    results: list[tuple[str, Workset, list[tuple[str, str]]]] = []
+
+    for ws_name in sorted(registry):
+        root = registry[ws_name]
+        if not root.is_dir():
+            print(
+                f"Warning: workset '{ws_name}' root missing: {root}",
+                file=sys.stderr,
+            )
+            continue
+        try:
+            ws = load_workset(root)
+        except Exception as exc:
+            print(
+                f"Warning: failed to load workset '{ws_name}': {exc}",
+                file=sys.stderr,
+            )
+            continue
+
+        project_list: list[tuple[str, str]] = []
+        for proj in ws.projects:
+            has_settings = (ws.settings_dir / proj.name).is_dir()
+            has_workspace = (ws.workspaces_dir / proj.name).is_dir()
+            if has_settings and has_workspace:
+                status = "ok"
+            elif has_settings and not has_workspace:
+                status = "missing"
+            else:
+                status = "no-data"
+            project_list.append((proj.name, status))
+
+        results.append((ws_name, ws, project_list))
+
+    return results
+
+
 def _find_workset_for_path(project_dir: Path, std: StandardPaths) -> tuple[Workset, str]:
     """Return ``(Workset, project_name)`` for a path inside a workset workspace.
 

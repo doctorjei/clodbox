@@ -11,13 +11,16 @@ from kanibako.config import load_config
 from kanibako.errors import ProjectError
 from kanibako.paths import (
     ProjectMode,
+    _find_workset_for_path,
     _xdg,
     detect_project_mode,
     iter_projects,
+    iter_workset_projects,
     load_std_paths,
     resolve_any_project,
     resolve_decentralized_project,
     resolve_project,
+    resolve_workset_project,
 )
 from kanibako.utils import confirm_prompt, project_hash, short_hash
 
@@ -65,6 +68,18 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
     migrate_p.add_argument(
         "--force", action="store_true", help="Skip confirmation prompt",
     )
+    migrate_p.add_argument(
+        "--workset", default=None,
+        help="Target workset name (required when --to workset)",
+    )
+    migrate_p.add_argument(
+        "--name", dest="project_name", default=None,
+        help="Project name in workset (default: directory basename)",
+    )
+    migrate_p.add_argument(
+        "--in-place", action="store_true", dest="in_place",
+        help="Keep workspace at current location (don't move into workset)",
+    )
     migrate_p.set_defaults(func=run_migrate)
 
     # kanibako box duplicate
@@ -90,6 +105,14 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
     duplicate_p.add_argument(
         "--force", action="store_true",
         help="Skip confirmation, overwrite existing data/metadata at destination",
+    )
+    duplicate_p.add_argument(
+        "--workset", default=None,
+        help="Target workset name (required when --to workset)",
+    )
+    duplicate_p.add_argument(
+        "--name", dest="project_name", default=None,
+        help="Project name in workset (default: directory basename)",
     )
     duplicate_p.set_defaults(func=run_duplicate)
 
@@ -121,23 +144,42 @@ def run_list(args: argparse.Namespace) -> int:
     std = load_std_paths(config)
 
     projects = iter_projects(std, config)
-    if not projects:
+    ws_data = iter_workset_projects(std, config)
+
+    if not projects and not ws_data:
         print("No known projects.")
         return 0
 
-    print(f"{'HASH':<10} {'STATUS':<10} {'PATH'}")
-    for settings_path, project_path in projects:
-        h8 = short_hash(settings_path.name)
-        if project_path is None:
-            status = "unknown"
-            label = "(no breadcrumb)"
-        elif project_path.is_dir():
-            status = "ok"
-            label = str(project_path)
+    if projects:
+        print(f"{'HASH':<10} {'STATUS':<10} {'PATH'}")
+        for settings_path, project_path in projects:
+            h8 = short_hash(settings_path.name)
+            if project_path is None:
+                status = "unknown"
+                label = "(no breadcrumb)"
+            elif project_path.is_dir():
+                status = "ok"
+                label = str(project_path)
+            else:
+                status = "missing"
+                label = str(project_path)
+            print(f"{h8:<10} {status:<10} {label}")
+
+    for ws_name, ws, project_list in ws_data:
+        print()
+        print(f"Working set: {ws_name} ({ws.root})")
+        if project_list:
+            print(f"  {'NAME':<18} {'STATUS':<10} {'SOURCE'}")
+            for proj_name, status in project_list:
+                # Look up source_path from workset projects.
+                source = ""
+                for p in ws.projects:
+                    if p.name == proj_name:
+                        source = str(p.source_path)
+                        break
+                print(f"  {proj_name:<18} {status:<10} {source}")
         else:
-            status = "missing"
-            label = str(project_path)
-        print(f"{h8:<10} {status:<10} {label}")
+            print("  (no projects)")
 
     return 0
 
@@ -252,10 +294,9 @@ def _run_convert(args: argparse.Namespace, std, config) -> int:
 
     to_mode_str = args.to_mode
 
-    # Workset not yet supported.
+    # Convert TO workset: separate code path.
     if to_mode_str == "workset":
-        print("Error: conversion to workset mode is not yet implemented.", file=sys.stderr)
-        return 1
+        return _convert_to_workset(args, std, config)
 
     # Resolve project path (positional arg or cwd).
     raw_path = args.old_path or os.getcwd()
@@ -268,9 +309,9 @@ def _run_convert(args: argparse.Namespace, std, config) -> int:
     # Detect current mode.
     current_mode = detect_project_mode(project_path, std, config)
 
+    # Convert FROM workset: separate code path.
     if current_mode == ProjectMode.workset:
-        print("Error: conversion from workset mode is not yet implemented.", file=sys.stderr)
-        return 1
+        return _convert_from_workset(args, project_path, std, config)
 
     # Parse target mode.
     target_mode = ProjectMode.decentralized if to_mode_str == "decentralized" else ProjectMode.account_centric
@@ -391,6 +432,237 @@ def _convert_decentral_to_ac(project_path, std, config, proj):
         shutil.rmtree(proj.shell_path)
 
 
+# -- Workset conversion helpers --
+
+def _convert_to_workset(args, std, config) -> int:
+    """Convert an AC or decentralized project into a workset."""
+    import os
+
+    from kanibako.workset import add_project, list_worksets, load_workset
+
+    ws_name = getattr(args, "workset", None)
+    if not ws_name:
+        print("Error: --workset is required when converting to workset mode.", file=sys.stderr)
+        return 1
+
+    # Load target workset.
+    registry = list_worksets(std)
+    if ws_name not in registry:
+        print(f"Error: workset '{ws_name}' not found.", file=sys.stderr)
+        return 1
+    ws = load_workset(registry[ws_name])
+
+    # Resolve source project.
+    raw_path = args.old_path or os.getcwd()
+    project_path = Path(raw_path).resolve()
+
+    if not project_path.is_dir():
+        print(f"Error: project path does not exist: {project_path}", file=sys.stderr)
+        return 1
+
+    current_mode = detect_project_mode(project_path, std, config)
+    if current_mode == ProjectMode.workset:
+        print("Error: project is already in workset mode.", file=sys.stderr)
+        return 1
+
+    # Determine project name.
+    proj_name = getattr(args, "project_name", None) or project_path.name
+
+    # Validate name not taken.
+    for p in ws.projects:
+        if p.name == proj_name:
+            print(f"Error: project '{proj_name}' already exists in workset '{ws_name}'.", file=sys.stderr)
+            return 1
+
+    # Resolve source paths.
+    if current_mode == ProjectMode.account_centric:
+        src_proj = resolve_project(std, config, project_dir=str(project_path), initialize=False)
+    else:
+        src_proj = resolve_decentralized_project(std, config, project_dir=str(project_path), initialize=False)
+
+    if not src_proj.settings_path.is_dir():
+        print(f"Error: no project data found for {project_path}", file=sys.stderr)
+        return 1
+
+    # Lock file warning.
+    lock_file = src_proj.settings_path / ".kanibako.lock"
+    if lock_file.exists():
+        print(
+            "Warning: lock file found — a container may be running for this project.",
+            file=sys.stderr,
+        )
+        if not args.force:
+            print("Aborted.")
+            return 2
+
+    in_place = getattr(args, "in_place", False)
+
+    # Confirm.
+    if not args.force:
+        action = "in-place (workspace stays)" if in_place else "move workspace into workset"
+        print(f"Convert project to workset mode ({action}):")
+        print(f"  project:  {project_path}")
+        print(f"  workset:  {ws_name}")
+        print(f"  name:     {proj_name}")
+        print()
+        try:
+            confirm_prompt("Type 'yes' to confirm: ")
+        except Exception:
+            print("Aborted.")
+            return 2
+
+    # Register project in workset (creates skeleton dirs).
+    add_project(ws, proj_name, project_path)
+
+    # Copy settings (excluding lock and breadcrumb).
+    dst_settings = ws.settings_dir / proj_name
+    shutil.copytree(
+        src_proj.settings_path, dst_settings,
+        ignore=shutil.ignore_patterns(".kanibako.lock", "project-path.txt"),
+        dirs_exist_ok=True,
+    )
+
+    # Copy shell.
+    if src_proj.shell_path.is_dir():
+        dst_shell = ws.shell_dir / proj_name
+        shutil.copytree(src_proj.shell_path, dst_shell, dirs_exist_ok=True)
+
+    # Move workspace unless --in-place.
+    if not in_place:
+        dst_workspace = ws.workspaces_dir / proj_name
+        # Copy workspace content (exclude decentralized metadata).
+        ignore = None
+        if current_mode == ProjectMode.decentralized:
+            ignore = shutil.ignore_patterns(".kanibako", ".shell")
+        shutil.copytree(project_path, dst_workspace, ignore=ignore, dirs_exist_ok=True)
+
+    # Clean up old metadata.
+    shutil.rmtree(src_proj.settings_path)
+    if src_proj.shell_path.is_dir():
+        shutil.rmtree(src_proj.shell_path)
+
+    print(f"Converted project to workset mode:")
+    print(f"  workset: {ws_name}/{proj_name}")
+    return 0
+
+
+def _convert_from_workset(args, project_path, std, config) -> int:
+    """Convert a workset project to AC or decentralized mode."""
+    to_mode_str = args.to_mode
+
+    ws, proj_name = _find_workset_for_path(project_path, std)
+    src_proj = resolve_workset_project(ws, proj_name, std, config, initialize=False)
+
+    target_mode = ProjectMode.decentralized if to_mode_str == "decentralized" else ProjectMode.account_centric
+
+    if not src_proj.settings_path.is_dir():
+        print(f"Error: no project data found for {project_path}", file=sys.stderr)
+        return 1
+
+    # Lock file warning.
+    lock_file = src_proj.settings_path / ".kanibako.lock"
+    if lock_file.exists():
+        print(
+            "Warning: lock file found — a container may be running for this project.",
+            file=sys.stderr,
+        )
+        if not args.force:
+            print("Aborted.")
+            return 2
+
+    # Determine destination path: use source_path from workset project.
+    found_proj = None
+    for p in ws.projects:
+        if p.name == proj_name:
+            found_proj = p
+            break
+    dest_path = found_proj.source_path if found_proj else project_path
+
+    # Confirm.
+    if not args.force:
+        print(f"Convert workset project to {target_mode.value} mode:")
+        print(f"  workset:  {ws.name}/{proj_name}")
+        print(f"  target:   {dest_path}")
+        print()
+        try:
+            confirm_prompt("Type 'yes' to confirm: ")
+        except Exception:
+            print("Aborted.")
+            return 2
+
+    if target_mode == ProjectMode.account_centric:
+        _convert_ws_to_ac(src_proj, dest_path, std, config)
+    else:
+        _convert_ws_to_decentral(src_proj, dest_path)
+
+    # Move workspace from workset to destination if it exists and differs.
+    ws_workspace = ws.workspaces_dir / proj_name
+    in_place = getattr(args, "in_place", False)
+    if not in_place and ws_workspace.is_dir() and ws_workspace != dest_path:
+        dest_path.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(ws_workspace, dest_path, dirs_exist_ok=True)
+
+    # Remove workset registration + workset dirs.
+    from kanibako.workset import remove_project
+
+    remove_project(ws, proj_name, remove_files=True)
+
+    print(f"Converted project to {target_mode.value} mode:")
+    print(f"  project: {dest_path}")
+    return 0
+
+
+def _convert_ws_to_ac(src_proj, dest_path, std, config):
+    """Copy workset project metadata into account-centric layout."""
+    phash = project_hash(str(dest_path))
+    projects_base = std.data_path / config.paths_projects_path
+    dst_settings = projects_base / phash
+    shell_base = std.data_path / "shell"
+    dst_shell = shell_base / phash
+
+    # Copy settings (excluding lock).
+    shutil.copytree(
+        src_proj.settings_path, dst_settings,
+        ignore=shutil.ignore_patterns(".kanibako.lock"),
+    )
+
+    # Write breadcrumb.
+    (dst_settings / "project-path.txt").write_text(str(dest_path) + "\n")
+
+    # Copy shell.
+    if src_proj.shell_path.is_dir():
+        shell_base.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(src_proj.shell_path, dst_shell)
+
+
+def _convert_ws_to_decentral(src_proj, dest_path):
+    """Copy workset project metadata into decentralized layout."""
+    from kanibako.commands.init import _write_project_gitignore
+
+    dest_path.mkdir(parents=True, exist_ok=True)
+    dst_settings = dest_path / ".kanibako"
+    dst_shell = dest_path / ".shell"
+
+    # Copy settings (excluding lock).
+    shutil.copytree(
+        src_proj.settings_path, dst_settings,
+        ignore=shutil.ignore_patterns(".kanibako.lock"),
+    )
+
+    # Copy shell.
+    if src_proj.shell_path.is_dir():
+        shutil.copytree(src_proj.shell_path, dst_shell)
+
+    _write_project_gitignore(dest_path)
+
+    # Write vault .gitignore if vault exists.
+    vault_dir = dest_path / "vault"
+    if vault_dir.is_dir():
+        vault_gitignore = vault_dir / ".gitignore"
+        if not vault_gitignore.exists():
+            vault_gitignore.write_text("share-rw/\n")
+
+
 # -- Cross-mode duplicate helpers --
 
 def _run_duplicate_cross_mode(args: argparse.Namespace, std, config) -> int:
@@ -399,10 +671,9 @@ def _run_duplicate_cross_mode(args: argparse.Namespace, std, config) -> int:
 
     to_mode_str = args.to_mode
 
-    # Workset not yet supported.
+    # Duplicate TO workset: separate code path.
     if to_mode_str == "workset":
-        print("Error: duplication to workset mode is not yet implemented.", file=sys.stderr)
-        return 1
+        return _duplicate_to_workset(args, std, config)
 
     source_path = Path(args.source_path).resolve()
     new_path = Path(args.new_path).resolve()
@@ -418,9 +689,9 @@ def _run_duplicate_cross_mode(args: argparse.Namespace, std, config) -> int:
     # Detect source mode and resolve.
     source_mode = detect_project_mode(source_path, std, config)
 
+    # Duplicate FROM workset: separate code path.
     if source_mode == ProjectMode.workset:
-        print("Error: duplication from workset mode is not yet implemented.", file=sys.stderr)
-        return 1
+        return _duplicate_from_workset(args, source_path, new_path, std, config)
 
     if source_mode == ProjectMode.account_centric:
         src_proj = resolve_project(std, config, project_dir=str(source_path), initialize=False)
@@ -532,6 +803,155 @@ def _duplicate_to_ac(src_proj, new_path, std, config, force):
         if force and dst_shell.is_dir():
             shutil.rmtree(dst_shell)
         shutil.copytree(src_proj.shell_path, dst_shell)
+
+
+def _duplicate_to_workset(args, std, config) -> int:
+    """Duplicate a project into a workset (source untouched)."""
+    from kanibako.workset import add_project, list_worksets, load_workset
+
+    ws_name = getattr(args, "workset", None)
+    if not ws_name:
+        print("Error: --workset is required when duplicating to workset mode.", file=sys.stderr)
+        return 1
+
+    registry = list_worksets(std)
+    if ws_name not in registry:
+        print(f"Error: workset '{ws_name}' not found.", file=sys.stderr)
+        return 1
+    ws = load_workset(registry[ws_name])
+
+    source_path = Path(args.source_path).resolve()
+    if not source_path.is_dir():
+        print(f"Error: source path does not exist as a directory: {source_path}", file=sys.stderr)
+        return 1
+
+    source_mode = detect_project_mode(source_path, std, config)
+    if source_mode == ProjectMode.workset:
+        print("Error: source is already a workset project.", file=sys.stderr)
+        return 1
+
+    proj_name = getattr(args, "project_name", None) or source_path.name
+
+    # Validate name not taken.
+    for p in ws.projects:
+        if p.name == proj_name:
+            print(f"Error: project '{proj_name}' already exists in workset '{ws_name}'.", file=sys.stderr)
+            return 1
+
+    if source_mode == ProjectMode.account_centric:
+        src_proj = resolve_project(std, config, project_dir=str(source_path), initialize=False)
+    else:
+        src_proj = resolve_decentralized_project(std, config, project_dir=str(source_path), initialize=False)
+
+    if not src_proj.settings_path.is_dir():
+        print(f"Error: no project data found for source path: {source_path}", file=sys.stderr)
+        return 1
+
+    # Lock file warning.
+    lock_file = src_proj.settings_path / ".kanibako.lock"
+    if lock_file.exists():
+        print(
+            "Warning: lock file found — a container may be running for this project.",
+            file=sys.stderr,
+        )
+        if not args.force:
+            print("Aborted.")
+            return 2
+
+    if not args.force:
+        mode = "metadata only (bare)" if args.bare else "workspace + metadata"
+        print(f"Duplicate project ({mode}) to workset:")
+        print(f"  from:    {source_path}")
+        print(f"  workset: {ws_name}/{proj_name}")
+        print()
+        try:
+            confirm_prompt("Type 'yes' to confirm: ")
+        except Exception:
+            print("Aborted.")
+            return 2
+
+    # Register in workset (creates skeleton dirs).
+    add_project(ws, proj_name, source_path)
+
+    # Copy settings (excluding lock and breadcrumb).
+    dst_settings = ws.settings_dir / proj_name
+    shutil.copytree(
+        src_proj.settings_path, dst_settings,
+        ignore=shutil.ignore_patterns(".kanibako.lock", "project-path.txt"),
+        dirs_exist_ok=True,
+    )
+
+    # Copy shell.
+    if src_proj.shell_path.is_dir():
+        dst_shell = ws.shell_dir / proj_name
+        shutil.copytree(src_proj.shell_path, dst_shell, dirs_exist_ok=True)
+
+    # Copy workspace (unless --bare).
+    if not args.bare:
+        dst_workspace = ws.workspaces_dir / proj_name
+        ignore = None
+        if source_mode == ProjectMode.decentralized:
+            ignore = shutil.ignore_patterns(".kanibako", ".shell")
+        shutil.copytree(source_path, dst_workspace, ignore=ignore, dirs_exist_ok=True)
+
+    print(f"Duplicated project to workset:")
+    print(f"  from:    {source_path}")
+    print(f"  workset: {ws_name}/{proj_name}")
+    return 0
+
+
+def _duplicate_from_workset(args, source_path, new_path, std, config) -> int:
+    """Duplicate a workset project to AC or decentralized layout (source untouched)."""
+    to_mode_str = args.to_mode
+
+    ws, proj_name = _find_workset_for_path(source_path, std)
+    src_proj = resolve_workset_project(ws, proj_name, std, config, initialize=False)
+
+    if not src_proj.settings_path.is_dir():
+        print(f"Error: no project data found for source path: {source_path}", file=sys.stderr)
+        return 1
+
+    target_mode = ProjectMode.decentralized if to_mode_str == "decentralized" else ProjectMode.account_centric
+
+    # Lock file warning.
+    lock_file = src_proj.settings_path / ".kanibako.lock"
+    if lock_file.exists():
+        print(
+            "Warning: lock file found — a container may be running for this project.",
+            file=sys.stderr,
+        )
+        if not args.force:
+            print("Aborted.")
+            return 2
+
+    if not args.force:
+        mode = "metadata only (bare)" if args.bare else "workspace + metadata"
+        print(f"Duplicate workset project ({mode}) to {target_mode.value} mode:")
+        print(f"  from: {ws.name}/{proj_name}")
+        print(f"    to: {new_path}")
+        print()
+        try:
+            confirm_prompt("Type 'yes' to confirm: ")
+        except Exception:
+            print("Aborted.")
+            return 2
+
+    # Copy workspace (unless --bare).
+    if not args.bare:
+        ws_workspace = ws.workspaces_dir / proj_name
+        if ws_workspace.is_dir():
+            shutil.copytree(ws_workspace, new_path, dirs_exist_ok=args.force)
+
+    # Copy metadata into target layout.
+    if target_mode == ProjectMode.decentralized:
+        _duplicate_to_decentral(src_proj, new_path, args.force)
+    else:
+        _duplicate_to_ac(src_proj, new_path, std, config, args.force)
+
+    print(f"Duplicated project to {target_mode.value} mode:")
+    print(f"  from: {ws.name}/{proj_name}")
+    print(f"    to: {new_path}")
+    return 0
 
 
 def run_duplicate(args: argparse.Namespace) -> int:

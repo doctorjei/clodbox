@@ -11,7 +11,8 @@ import pytest
 
 from kanibako.config import load_config
 from kanibako.errors import GitError
-from kanibako.paths import load_std_paths, resolve_project
+from kanibako.paths import load_std_paths, resolve_project, resolve_workset_project
+from kanibako.workset import add_project, create_workset
 
 
 class TestArchiveExtended:
@@ -180,3 +181,63 @@ class TestArchiveExtended:
         with tarfile.open(archive_path, "r:xz") as tar:
             names = tar.getnames()
             assert any("data.txt" in n for n in names)
+
+
+class TestArchiveWorkset:
+    def test_archive_all_includes_workset_projects(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.archive import run
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+
+        # Create an AC project
+        ac_dir = tmp_home / "ac_arch"
+        ac_dir.mkdir()
+        resolve_project(std, config, project_dir=str(ac_dir), initialize=True)
+
+        # Create a workset with an initialized project
+        ws_root = tmp_home / "worksets" / "arch-ws"
+        ws = create_workset("arch-ws", ws_root, std)
+        source = tmp_home / "arch_src"
+        source.mkdir()
+        add_project(ws, "arch-proj", source)
+        proj = resolve_workset_project(ws, "arch-proj", std, config, initialize=True)
+        (proj.settings_path / "data.txt").write_text("ws-archive-data")
+
+        import os
+        os.chdir(tmp_home)
+        args = argparse.Namespace(
+            path=None, file=None,
+            all_projects=True, allow_uncommitted=True, allow_unpushed=True, force=True,
+        )
+        rc = run(args)
+        assert rc == 0
+
+        # Both AC and workset archives should be created
+        import glob
+        files = glob.glob(str(tmp_home / "kanibako-*.txz"))
+        assert len(files) >= 2
+
+    def test_archive_workset_project_single(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.archive import run
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+
+        ws_root = tmp_home / "worksets" / "single-ws"
+        ws = create_workset("single-ws", ws_root, std)
+        source = tmp_home / "single_src"
+        source.mkdir()
+        add_project(ws, "single-proj", source)
+        proj = resolve_workset_project(ws, "single-proj", std, config, initialize=True)
+        (proj.settings_path / "data.txt").write_text("single-data")
+
+        archive_path = str(tmp_home / "single.txz")
+        # Use workspace path as path arg
+        args = argparse.Namespace(
+            path=str(ws.workspaces_dir / "single-proj"), file=archive_path,
+            all_projects=False, allow_uncommitted=True, allow_unpushed=True, force=True,
+        )
+        rc = run(args)
+        assert rc == 0
+        assert Path(archive_path).exists()

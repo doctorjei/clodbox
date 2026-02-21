@@ -324,3 +324,22 @@ class TestParser:
         assert args.command == "workset"
         assert args.workset_command == "info"
         assert args.name == "myws"
+
+    def test_box_migrate_workset_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["box", "migrate", "--to", "workset", "--workset", "myws", "--name", "proj"])
+        assert args.to_mode == "workset"
+        assert args.workset == "myws"
+        assert args.project_name == "proj"
+
+    def test_box_migrate_in_place_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["box", "migrate", "--to", "workset", "--workset", "myws", "--in-place"])
+        assert args.in_place is True
+
+    def test_box_duplicate_workset_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["box", "duplicate", "/src", "/dst", "--to", "workset", "--workset", "myws", "--name", "proj"])
+        assert args.to_mode == "workset"
+        assert args.workset == "myws"
+        assert args.project_name == "proj"

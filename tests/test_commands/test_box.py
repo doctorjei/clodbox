@@ -8,8 +8,9 @@ import shutil
 import pytest
 
 from kanibako.config import load_config
-from kanibako.paths import load_std_paths, resolve_decentralized_project, resolve_project
+from kanibako.paths import load_std_paths, resolve_decentralized_project, resolve_project, resolve_workset_project
 from kanibako.utils import project_hash
+from kanibako.workset import add_project, create_workset, load_workset
 
 
 class TestBoxList:
@@ -534,12 +535,16 @@ class TestBoxMigrateShell:
 class TestBoxConvert:
     """Tests for cross-mode conversion (kanibako box migrate --to)."""
 
-    def _convert_args(self, project_path=None, to_mode="decentralized", force=True):
+    def _convert_args(self, project_path=None, to_mode="decentralized", force=True,
+                       workset=None, project_name=None, in_place=False):
         return argparse.Namespace(
             old_path=str(project_path) if project_path else None,
             new_path=None,
             to_mode=to_mode,
             force=force,
+            workset=workset,
+            project_name=project_name,
+            in_place=in_place,
         )
 
     def test_convert_ac_to_decentralized(self, config_file, tmp_home, credentials_dir):
@@ -615,38 +620,14 @@ class TestBoxConvert:
         rc = run_migrate(args)
         assert rc == 1
 
-    def test_convert_to_workset_not_implemented(self, config_file, tmp_home, credentials_dir):
+    def test_convert_to_workset_requires_workset_flag(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
 
         project_dir = tmp_home / "conv_ws"
         project_dir.mkdir()
 
+        # No --workset flag → error
         args = self._convert_args(project_dir, "workset")
-        rc = run_migrate(args)
-        assert rc == 1
-
-    def test_convert_from_workset_not_implemented(self, config_file, tmp_home, credentials_dir):
-        from kanibako.commands.box import run_migrate
-
-        config = load_config(config_file)
-        std = load_std_paths(config)
-
-        # Create a fake workset registration so detect_project_mode returns workset.
-        project_dir = tmp_home / "ws_proj"
-        project_dir.mkdir()
-
-        # Register a workset that covers this project.
-        ws_root = tmp_home / "ws_root"
-        ws_workspaces = ws_root / "workspaces"
-        ws_workspaces.mkdir(parents=True)
-        # Make project_dir inside workspaces.
-        ws_project = ws_workspaces / "myproj"
-        ws_project.mkdir()
-
-        worksets_toml = std.data_path / "worksets.toml"
-        worksets_toml.write_text(f'[worksets]\nmyws = "{ws_root}"\n')
-
-        args = self._convert_args(ws_project, "decentralized")
         rc = run_migrate(args)
         assert rc == 1
 
@@ -846,10 +827,12 @@ class TestBoxConvert:
 class TestBoxDuplicateCrossMode:
     """Tests for cross-mode duplication (kanibako box duplicate --to)."""
 
-    def _make_args(self, source, dest, to_mode, bare=False, force=True):
+    def _make_args(self, source, dest, to_mode, bare=False, force=True,
+                    workset=None, project_name=None):
         return argparse.Namespace(
             source_path=str(source), new_path=str(dest),
             to_mode=to_mode, bare=bare, force=force,
+            workset=workset, project_name=project_name,
         )
 
     def test_duplicate_ac_to_decentralized(self, config_file, tmp_home, credentials_dir):
@@ -967,7 +950,7 @@ class TestBoxDuplicateCrossMode:
 
         assert not (dst_dir / ".kanibako" / ".kanibako.lock").exists()
 
-    def test_duplicate_cross_mode_to_workset_error(self, config_file, tmp_home, credentials_dir):
+    def test_duplicate_cross_mode_to_workset_requires_workset_flag(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_duplicate
 
         config = load_config(config_file)
@@ -979,6 +962,611 @@ class TestBoxDuplicateCrossMode:
 
         dst_dir = tmp_home / "dup_ws_dst"
 
+        # No --workset flag → error
         args = self._make_args(src_dir, dst_dir, "workset")
         rc = run_duplicate(args)
         assert rc == 1
+
+
+# ---------------------------------------------------------------------------
+# Helpers for workset-aware tests
+# ---------------------------------------------------------------------------
+
+def _make_workset(tmp_home, std, ws_name="testws"):
+    """Create a workset and return (ws, ws_root)."""
+    ws_root = tmp_home / "worksets" / ws_name
+    ws = create_workset(ws_name, ws_root, std)
+    return ws, ws_root
+
+
+def _make_ac_project(tmp_home, std, config, name="myproj"):
+    """Create an AC project with a marker file, return (proj, project_dir)."""
+    project_dir = tmp_home / name
+    project_dir.mkdir()
+    (project_dir / "code.py").write_text("print('hello')")
+    proj = resolve_project(std, config, project_dir=str(project_dir), initialize=True)
+    (proj.settings_path / "marker.txt").write_text("ac-marker")
+    (proj.shell_path / "custom.sh").write_text("echo hello")
+    return proj, project_dir
+
+
+def _make_decentral_project(tmp_home, std, config, name="myproj"):
+    """Create a decentralized project with a marker file, return (proj, project_dir)."""
+    project_dir = tmp_home / name
+    project_dir.mkdir()
+    (project_dir / "code.py").write_text("print('dec')")
+    proj = resolve_decentralized_project(
+        std, config, project_dir=str(project_dir), initialize=True,
+    )
+    (proj.settings_path / "marker.txt").write_text("dec-marker")
+    (proj.shell_path / "custom.sh").write_text("echo dec")
+    return proj, project_dir
+
+
+# ---------------------------------------------------------------------------
+# TestBoxListWorkset
+# ---------------------------------------------------------------------------
+
+class TestBoxListWorkset:
+    def test_list_shows_workset_projects(self, config_file, tmp_home, credentials_dir, capsys):
+        from kanibako.commands.box import run_list
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+
+        ws, _ = _make_workset(tmp_home, std, "myws")
+        source = tmp_home / "src_proj"
+        source.mkdir()
+        add_project(ws, "cool-app", source)
+
+        args = argparse.Namespace()
+        rc = run_list(args)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "myws" in out
+        assert "cool-app" in out
+
+    def test_list_mixed_ac_and_workset(self, config_file, tmp_home, credentials_dir, capsys):
+        from kanibako.commands.box import run_list
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+
+        # AC project
+        ac_dir = tmp_home / "ac_proj"
+        ac_dir.mkdir()
+        resolve_project(std, config, project_dir=str(ac_dir), initialize=True)
+
+        # Workset project
+        ws, _ = _make_workset(tmp_home, std, "mixed-ws")
+        source = tmp_home / "ws_src"
+        source.mkdir()
+        add_project(ws, "ws-proj", source)
+
+        args = argparse.Namespace()
+        rc = run_list(args)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "HASH" in out  # AC table header
+        assert str(ac_dir) in out
+        assert "mixed-ws" in out
+        assert "ws-proj" in out
+
+    def test_list_workset_missing_workspace(self, config_file, tmp_home, credentials_dir, capsys):
+        from kanibako.commands.box import run_list
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+
+        ws, _ = _make_workset(tmp_home, std, "miss-ws")
+        source = tmp_home / "miss_src"
+        source.mkdir()
+        add_project(ws, "miss-proj", source)
+        # Remove the workspace dir
+        shutil.rmtree(ws.workspaces_dir / "miss-proj")
+
+        args = argparse.Namespace()
+        rc = run_list(args)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "missing" in out
+
+    def test_list_workset_no_settings(self, config_file, tmp_home, credentials_dir, capsys):
+        from kanibako.commands.box import run_list
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+
+        ws, _ = _make_workset(tmp_home, std, "nodata-ws")
+        source = tmp_home / "nodata_src"
+        source.mkdir()
+        add_project(ws, "nodata-proj", source)
+        # Remove the settings dir
+        shutil.rmtree(ws.settings_dir / "nodata-proj")
+
+        args = argparse.Namespace()
+        rc = run_list(args)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "no-data" in out
+
+    def test_list_workset_root_missing(self, config_file, tmp_home, credentials_dir, capsys):
+        from kanibako.commands.box import run_list
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+
+        ws, ws_root = _make_workset(tmp_home, std, "gone-ws")
+        # Remove the workset root entirely
+        shutil.rmtree(ws_root)
+
+        args = argparse.Namespace()
+        rc = run_list(args)
+        assert rc == 0
+        err = capsys.readouterr().err
+        assert "Warning" in err
+
+
+# ---------------------------------------------------------------------------
+# TestBoxConvertToWorkset
+# ---------------------------------------------------------------------------
+
+class TestBoxConvertToWorkset:
+    def _convert_args(self, project_path=None, workset=None, project_name=None,
+                       in_place=False, force=True):
+        return argparse.Namespace(
+            old_path=str(project_path) if project_path else None,
+            new_path=None,
+            to_mode="workset",
+            force=force,
+            workset=workset,
+            project_name=project_name,
+            in_place=in_place,
+        )
+
+    def test_convert_ac_to_workset(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_migrate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        proj, project_dir = _make_ac_project(tmp_home, std, config, "conv_ac_ws")
+        ws, _ = _make_workset(tmp_home, std, "target-ws")
+
+        args = self._convert_args(project_dir, workset="target-ws")
+        rc = run_migrate(args)
+        assert rc == 0
+
+        # Settings in workset
+        assert (ws.settings_dir / "conv_ac_ws" / "marker.txt").read_text() == "ac-marker"
+        # Shell in workset
+        assert (ws.shell_dir / "conv_ac_ws" / "custom.sh").read_text() == "echo hello"
+        # Workspace moved
+        assert (ws.workspaces_dir / "conv_ac_ws" / "code.py").read_text() == "print('hello')"
+        # Old AC data gone
+        assert not proj.settings_path.exists()
+        assert not proj.shell_path.exists()
+
+    def test_convert_decentralized_to_workset(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_migrate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        proj, project_dir = _make_decentral_project(tmp_home, std, config, "conv_dec_ws")
+        ws, _ = _make_workset(tmp_home, std, "dec-ws")
+
+        args = self._convert_args(project_dir, workset="dec-ws")
+        rc = run_migrate(args)
+        assert rc == 0
+
+        # Settings in workset
+        assert (ws.settings_dir / "conv_dec_ws" / "marker.txt").read_text() == "dec-marker"
+        # Shell in workset
+        assert (ws.shell_dir / "conv_dec_ws" / "custom.sh").read_text() == "echo dec"
+        # Old decentralized data gone
+        assert not (project_dir / ".kanibako").exists()
+        assert not (project_dir / ".shell").exists()
+
+    def test_convert_to_workset_in_place(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_migrate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        proj, project_dir = _make_ac_project(tmp_home, std, config, "conv_ip")
+        ws, _ = _make_workset(tmp_home, std, "ip-ws")
+
+        args = self._convert_args(project_dir, workset="ip-ws", in_place=True)
+        rc = run_migrate(args)
+        assert rc == 0
+
+        # Workspace stays at original location → workset workspace dir is empty
+        ws_workspace = ws.workspaces_dir / "conv_ip"
+        assert not any(ws_workspace.iterdir())
+        # Original workspace still has files
+        assert (project_dir / "code.py").read_text() == "print('hello')"
+
+    def test_convert_to_workset_requires_workset_flag(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_migrate
+
+        project_dir = tmp_home / "conv_noflag"
+        project_dir.mkdir()
+
+        args = self._convert_args(project_dir, workset=None)
+        rc = run_migrate(args)
+        assert rc == 1
+
+    def test_convert_to_workset_nonexistent_workset(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_migrate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        _, project_dir = _make_ac_project(tmp_home, std, config, "conv_noexist")
+
+        args = self._convert_args(project_dir, workset="nonexistent")
+        rc = run_migrate(args)
+        assert rc == 1
+
+    def test_convert_to_workset_name_collision(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_migrate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        _, project_dir = _make_ac_project(tmp_home, std, config, "conv_collision")
+        ws, _ = _make_workset(tmp_home, std, "coll-ws")
+        # Pre-register a project with the same name
+        source = tmp_home / "coll_src"
+        source.mkdir()
+        add_project(ws, "conv_collision", source)
+
+        args = self._convert_args(project_dir, workset="coll-ws")
+        rc = run_migrate(args)
+        assert rc == 1
+
+    def test_convert_to_workset_custom_name(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_migrate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        proj, project_dir = _make_ac_project(tmp_home, std, config, "conv_custom")
+        ws, _ = _make_workset(tmp_home, std, "custom-ws")
+
+        args = self._convert_args(project_dir, workset="custom-ws", project_name="my-fancy-name")
+        rc = run_migrate(args)
+        assert rc == 0
+
+        # Uses custom name, not directory basename
+        assert (ws.settings_dir / "my-fancy-name").is_dir()
+        assert (ws.settings_dir / "my-fancy-name" / "marker.txt").read_text() == "ac-marker"
+
+    def test_convert_to_workset_preserves_settings(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_migrate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        proj, project_dir = _make_ac_project(tmp_home, std, config, "conv_pres")
+        ws, _ = _make_workset(tmp_home, std, "pres-ws")
+
+        args = self._convert_args(project_dir, workset="pres-ws")
+        rc = run_migrate(args)
+        assert rc == 0
+        assert (ws.settings_dir / "conv_pres" / "marker.txt").read_text() == "ac-marker"
+
+    def test_convert_to_workset_preserves_workspace(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_migrate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        _, project_dir = _make_ac_project(tmp_home, std, config, "conv_ws_files")
+        ws, _ = _make_workset(tmp_home, std, "wfiles-ws")
+
+        args = self._convert_args(project_dir, workset="wfiles-ws")
+        rc = run_migrate(args)
+        assert rc == 0
+        assert (ws.workspaces_dir / "conv_ws_files" / "code.py").read_text() == "print('hello')"
+
+    def test_convert_to_workset_excludes_lock(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_migrate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        proj, project_dir = _make_ac_project(tmp_home, std, config, "conv_lock")
+        (proj.settings_path / ".kanibako.lock").touch()
+        ws, _ = _make_workset(tmp_home, std, "lock-ws")
+
+        args = self._convert_args(project_dir, workset="lock-ws", force=True)
+        rc = run_migrate(args)
+        assert rc == 0
+        assert not (ws.settings_dir / "conv_lock" / ".kanibako.lock").exists()
+
+
+# ---------------------------------------------------------------------------
+# TestBoxConvertFromWorkset
+# ---------------------------------------------------------------------------
+
+class TestBoxConvertFromWorkset:
+    def _make_workset_proj(self, tmp_home, std, config, ws_name="from-ws", proj_name="ws-proj"):
+        """Create a workset with an initialized project, return (ws, proj)."""
+        ws, _ = _make_workset(tmp_home, std, ws_name)
+        source = tmp_home / f"{proj_name}_src"
+        source.mkdir()
+        add_project(ws, proj_name, source)
+        proj = resolve_workset_project(ws, proj_name, std, config, initialize=True)
+        (proj.settings_path / "marker.txt").write_text("ws-marker")
+        (proj.shell_path / "custom.sh").write_text("echo ws")
+        # Put some content in workspace
+        (ws.workspaces_dir / proj_name / "code.py").write_text("print('ws')")
+        return ws, proj
+
+    def _convert_args(self, project_path, to_mode, force=True, in_place=False):
+        return argparse.Namespace(
+            old_path=str(project_path),
+            new_path=None,
+            to_mode=to_mode,
+            force=force,
+            workset=None,
+            project_name=None,
+            in_place=in_place,
+        )
+
+    def test_convert_workset_to_ac(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_migrate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        ws, proj = self._make_workset_proj(tmp_home, std, config)
+        workspace_path = ws.workspaces_dir / "ws-proj"
+
+        args = self._convert_args(workspace_path, "account-centric")
+        rc = run_migrate(args)
+        assert rc == 0
+
+        # AC layout at source_path
+        source_path = proj.project_path  # workspaces/ws-proj
+        dest_path = ws.projects[0].source_path if ws.projects else (tmp_home / "ws-proj_src")
+        # The source_path recorded in the workset project is used as dest
+        phash = project_hash(str(dest_path))
+        projects_base = std.data_path / config.paths_projects_path
+        ac_settings = projects_base / phash
+        assert ac_settings.is_dir()
+        assert (ac_settings / "marker.txt").read_text() == "ws-marker"
+        # Breadcrumb written
+        assert (ac_settings / "project-path.txt").exists()
+
+    def test_convert_workset_to_decentralized(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_migrate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        ws, proj = self._make_workset_proj(tmp_home, std, config, "from-dec-ws", "dec-proj")
+        workspace_path = ws.workspaces_dir / "dec-proj"
+        source = tmp_home / "dec-proj_src"
+
+        args = self._convert_args(workspace_path, "decentralized")
+        rc = run_migrate(args)
+        assert rc == 0
+
+        # Decentralized layout at source_path
+        assert (source / ".kanibako").is_dir()
+        assert (source / ".kanibako" / "marker.txt").read_text() == "ws-marker"
+        assert (source / ".gitignore").exists()
+
+    def test_convert_workset_preserves_settings(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_migrate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        ws, proj = self._make_workset_proj(tmp_home, std, config, "pres-ws2", "pres-proj")
+        workspace_path = ws.workspaces_dir / "pres-proj"
+
+        args = self._convert_args(workspace_path, "decentralized")
+        rc = run_migrate(args)
+        assert rc == 0
+
+        dest = tmp_home / "pres-proj_src"
+        assert (dest / ".kanibako" / "marker.txt").read_text() == "ws-marker"
+
+    def test_convert_workset_excludes_lock(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_migrate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        ws, proj = self._make_workset_proj(tmp_home, std, config, "lock-ws2", "lock-proj")
+        (proj.settings_path / ".kanibako.lock").touch()
+        workspace_path = ws.workspaces_dir / "lock-proj"
+
+        args = self._convert_args(workspace_path, "decentralized", force=True)
+        rc = run_migrate(args)
+        assert rc == 0
+
+        dest = tmp_home / "lock-proj_src"
+        assert not (dest / ".kanibako" / ".kanibako.lock").exists()
+
+    def test_convert_workset_removes_registration(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_migrate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        ws, proj = self._make_workset_proj(tmp_home, std, config, "unreg-ws", "unreg-proj")
+        workspace_path = ws.workspaces_dir / "unreg-proj"
+
+        args = self._convert_args(workspace_path, "account-centric")
+        rc = run_migrate(args)
+        assert rc == 0
+
+        # Project should be removed from workset
+        ws_reloaded = load_workset(ws.root)
+        assert not any(p.name == "unreg-proj" for p in ws_reloaded.projects)
+
+
+# ---------------------------------------------------------------------------
+# TestBoxDuplicateToWorkset
+# ---------------------------------------------------------------------------
+
+class TestBoxDuplicateToWorkset:
+    def _make_args(self, source, dest, workset=None, project_name=None,
+                    bare=False, force=True):
+        return argparse.Namespace(
+            source_path=str(source), new_path=str(dest),
+            to_mode="workset", bare=bare, force=force,
+            workset=workset, project_name=project_name,
+        )
+
+    def test_duplicate_ac_to_workset(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_duplicate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        proj, project_dir = _make_ac_project(tmp_home, std, config, "dup_ac_src")
+        ws, _ = _make_workset(tmp_home, std, "dup-ws")
+
+        args = self._make_args(project_dir, tmp_home / "unused", workset="dup-ws")
+        rc = run_duplicate(args)
+        assert rc == 0
+
+        # Workset copy exists
+        assert (ws.settings_dir / "dup_ac_src" / "marker.txt").read_text() == "ac-marker"
+        assert (ws.workspaces_dir / "dup_ac_src" / "code.py").read_text() == "print('hello')"
+        # Source untouched
+        assert proj.settings_path.is_dir()
+        assert (proj.settings_path / "marker.txt").read_text() == "ac-marker"
+
+    def test_duplicate_to_workset_bare(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_duplicate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        proj, project_dir = _make_ac_project(tmp_home, std, config, "dup_bare_src")
+        ws, _ = _make_workset(tmp_home, std, "bare-ws")
+
+        args = self._make_args(project_dir, tmp_home / "unused", workset="bare-ws", bare=True)
+        rc = run_duplicate(args)
+        assert rc == 0
+
+        # Metadata exists
+        assert (ws.settings_dir / "dup_bare_src" / "marker.txt").read_text() == "ac-marker"
+        # Workspace NOT copied (skeleton dir exists from add_project but no code.py)
+        assert not (ws.workspaces_dir / "dup_bare_src" / "code.py").exists()
+
+    def test_duplicate_to_workset_requires_workset_flag(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_duplicate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        _, project_dir = _make_ac_project(tmp_home, std, config, "dup_noflag_src")
+
+        args = self._make_args(project_dir, tmp_home / "unused")
+        rc = run_duplicate(args)
+        assert rc == 1
+
+    def test_duplicate_to_workset_preserves_source(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_duplicate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        proj, project_dir = _make_ac_project(tmp_home, std, config, "dup_pres_src")
+        ws, _ = _make_workset(tmp_home, std, "pres-dup-ws")
+
+        args = self._make_args(project_dir, tmp_home / "unused", workset="pres-dup-ws")
+        rc = run_duplicate(args)
+        assert rc == 0
+
+        # Source untouched
+        assert proj.settings_path.is_dir()
+        assert (project_dir / "code.py").read_text() == "print('hello')"
+        assert (proj.settings_path / "marker.txt").read_text() == "ac-marker"
+
+
+# ---------------------------------------------------------------------------
+# TestBoxDuplicateFromWorkset
+# ---------------------------------------------------------------------------
+
+class TestBoxDuplicateFromWorkset:
+    def _make_workset_proj(self, tmp_home, std, config, ws_name="dfrom-ws", proj_name="ws-proj"):
+        ws, _ = _make_workset(tmp_home, std, ws_name)
+        source = tmp_home / f"{proj_name}_src"
+        source.mkdir()
+        add_project(ws, proj_name, source)
+        proj = resolve_workset_project(ws, proj_name, std, config, initialize=True)
+        (proj.settings_path / "marker.txt").write_text("ws-dup-marker")
+        (proj.shell_path / "custom.sh").write_text("echo ws-dup")
+        (ws.workspaces_dir / proj_name / "code.py").write_text("print('ws-dup')")
+        return ws, proj
+
+    def _make_args(self, source, dest, to_mode, bare=False, force=True):
+        return argparse.Namespace(
+            source_path=str(source), new_path=str(dest),
+            to_mode=to_mode, bare=bare, force=force,
+            workset=None, project_name=None,
+        )
+
+    def test_duplicate_workset_to_ac(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_duplicate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        ws, proj = self._make_workset_proj(tmp_home, std, config)
+        workspace_path = ws.workspaces_dir / "ws-proj"
+        dest = tmp_home / "dup_ws_ac_dst"
+
+        args = self._make_args(workspace_path, dest, "account-centric")
+        rc = run_duplicate(args)
+        assert rc == 0
+
+        # AC layout at destination
+        phash = project_hash(str(dest.resolve()))
+        projects_base = std.data_path / config.paths_projects_path
+        ac_settings = projects_base / phash
+        assert ac_settings.is_dir()
+        assert (ac_settings / "marker.txt").read_text() == "ws-dup-marker"
+        assert (dest / "code.py").read_text() == "print('ws-dup')"
+
+    def test_duplicate_workset_to_decentralized(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_duplicate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        ws, proj = self._make_workset_proj(tmp_home, std, config, "dfrom-dec", "dec-proj")
+        workspace_path = ws.workspaces_dir / "dec-proj"
+        dest = tmp_home / "dup_ws_dec_dst"
+
+        args = self._make_args(workspace_path, dest, "decentralized")
+        rc = run_duplicate(args)
+        assert rc == 0
+
+        assert (dest / ".kanibako").is_dir()
+        assert (dest / ".kanibako" / "marker.txt").read_text() == "ws-dup-marker"
+        assert (dest / "code.py").read_text() == "print('ws-dup')"
+
+    def test_duplicate_workset_bare(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_duplicate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        ws, proj = self._make_workset_proj(tmp_home, std, config, "dfrom-bare", "bare-proj")
+        workspace_path = ws.workspaces_dir / "bare-proj"
+        dest = tmp_home / "dup_ws_bare_dst"
+
+        args = self._make_args(workspace_path, dest, "decentralized", bare=True)
+        rc = run_duplicate(args)
+        assert rc == 0
+
+        # Metadata exists but workspace not copied
+        assert (dest / ".kanibako" / "marker.txt").read_text() == "ws-dup-marker"
+        assert not (dest / "code.py").exists()
+
+    def test_duplicate_workset_preserves_source(self, config_file, tmp_home, credentials_dir):
+        from kanibako.commands.box import run_duplicate
+
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        ws, proj = self._make_workset_proj(tmp_home, std, config, "dfrom-pres", "pres-proj")
+        workspace_path = ws.workspaces_dir / "pres-proj"
+        dest = tmp_home / "dup_ws_pres_dst"
+
+        args = self._make_args(workspace_path, dest, "account-centric")
+        rc = run_duplicate(args)
+        assert rc == 0
+
+        # Source untouched
+        assert proj.settings_path.is_dir()
+        assert (proj.settings_path / "marker.txt").read_text() == "ws-dup-marker"
+        assert (workspace_path / "code.py").read_text() == "print('ws-dup')"
