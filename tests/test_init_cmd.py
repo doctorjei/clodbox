@@ -77,8 +77,8 @@ class TestRunInit:
 
         assert rc == 0
         resolved = project_dir.resolve()
-        assert (resolved / ".kanibako").is_dir()
-        assert (resolved / ".shell").is_dir()
+        assert (resolved / "kanibako").is_dir()
+        assert (resolved / "home").is_dir()
         assert (resolved / "vault" / "share-ro").is_dir()
         assert (resolved / "vault" / "share-rw").is_dir()
 
@@ -92,8 +92,8 @@ class TestRunInit:
         gitignore = project_dir.resolve() / ".gitignore"
         assert gitignore.is_file()
         content = gitignore.read_text()
-        assert ".kanibako/" in content
-        assert ".shell/" in content
+        assert "kanibako/" in content
+        assert "home/" in content
 
     def test_init_without_local_fails(self, config_file, project_dir, capsys):
         parser = build_parser()
@@ -136,8 +136,8 @@ class TestRunNew:
         assert rc == 0
         resolved = target.resolve()
         assert resolved.is_dir()
-        assert (resolved / ".kanibako").is_dir()
-        assert (resolved / ".shell").is_dir()
+        assert (resolved / "kanibako").is_dir()
+        assert (resolved / "home").is_dir()
 
     def test_new_local_writes_gitignore(
         self, config_file, credentials_dir, tmp_home, capsys,
@@ -150,8 +150,8 @@ class TestRunNew:
         gitignore = target.resolve() / ".gitignore"
         assert gitignore.is_file()
         content = gitignore.read_text()
-        assert ".kanibako/" in content
-        assert ".shell/" in content
+        assert "kanibako/" in content
+        assert "home/" in content
 
     def test_new_without_local_fails(self, config_file, tmp_home, capsys):
         target = tmp_home / "should-not-exist"

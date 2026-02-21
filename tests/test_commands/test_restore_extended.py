@@ -24,7 +24,7 @@ class TestRestoreExtended:
         std = load_std_paths(config)
         project_dir = str(tmp_home / "project")
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
-        (proj.settings_path / "data.txt").write_text("testdata")
+        (proj.metadata_path / "data.txt").write_text("testdata")
 
         archive_path = str(tmp_home / archive_name)
         args = argparse.Namespace(
@@ -121,7 +121,7 @@ class TestRestoreExtended:
         std = load_std_paths(config)
         project_dir = str(fake_git_repo)
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
-        (proj.settings_path / "data.txt").write_text("from-git")
+        (proj.metadata_path / "data.txt").write_text("from-git")
 
         archive_path = str(tmp_home / "git-archive.txz")
         args = argparse.Namespace(
@@ -183,7 +183,7 @@ class TestRestoreExtended:
         assert rc == 1
 
     def test_restore_decentralized_project(self, config_file, tmp_home, credentials_dir):
-        """Restore an archive into a decentralized project's .kanibako/."""
+        """Restore an archive into a decentralized project's kanibako/."""
         from kanibako.commands.archive import run as archive_run
         from kanibako.commands.restore import run as restore_run
 
@@ -192,7 +192,7 @@ class TestRestoreExtended:
         std = load_std_paths(config)
         project_dir = str(tmp_home / "project")
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
-        (proj.settings_path / "data.txt").write_text("restore-me")
+        (proj.metadata_path / "data.txt").write_text("restore-me")
 
         archive_path = str(tmp_home / "dec-restore.txz")
         args = argparse.Namespace(
@@ -203,10 +203,10 @@ class TestRestoreExtended:
 
         # Now set up the project as decentralized
         project_path = tmp_home / "project"
-        kanibako_dir = project_path / ".kanibako"
+        kanibako_dir = project_path / "kanibako"
         kanibako_dir.mkdir(exist_ok=True)
         # Remove account-centric data so mode detection picks decentralized
-        shutil.rmtree(proj.settings_path)
+        shutil.rmtree(proj.metadata_path)
 
         # Restore into the decentralized project
         args = argparse.Namespace(
@@ -215,6 +215,6 @@ class TestRestoreExtended:
         rc = restore_run(args)
         assert rc == 0
 
-        # Data should now exist in the decentralized settings path
+        # Data should now exist in the decentralized metadata path
         dec_proj = resolve_any_project(std, config, project_dir=project_dir, initialize=False)
         assert dec_proj.mode.value == "decentralized"

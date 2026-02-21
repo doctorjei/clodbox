@@ -4,12 +4,14 @@ A *workset* is a named group of projects whose persistent state lives under a
 single root directory chosen by the user.  The layout is:
 
     {root}/
-        workset.toml            ← workset metadata + project list
-        settings/{name}/        ← per-project settings
-        workspaces/{name}/      ← per-project workspace (source tree)
-        shell/{name}/           ← per-project agent home
-        vault/{name}/share-ro/  ← per-project read-only vault
-        vault/{name}/share-rw/  ← per-project read-write vault
+        workset.toml              ← workset metadata + project list
+        projects/{name}/          ← per-project metadata + home
+            home/                 ← agent home (mounted as /home/agent)
+            project.toml          ← per-project config
+            .kanibako.lock        ← concurrency lock
+        workspaces/{name}/        ← per-project workspace (source tree)
+        vault/{name}/share-ro/    ← per-project read-only vault
+        vault/{name}/share-rw/    ← per-project read-write vault
 
 A global registry at ``$XDG_DATA_HOME/kanibako/worksets.toml`` maps workset
 names to root paths so they can be discovered from anywhere.
@@ -50,16 +52,12 @@ class Workset:
     # Convenience paths -------------------------------------------------------
 
     @property
-    def settings_dir(self) -> Path:
-        return self.root / "settings"
+    def projects_dir(self) -> Path:
+        return self.root / "projects"
 
     @property
     def workspaces_dir(self) -> Path:
         return self.root / "workspaces"
-
-    @property
-    def shell_dir(self) -> Path:
-        return self.root / "shell"
 
     @property
     def vault_dir(self) -> Path:
@@ -168,7 +166,7 @@ def create_workset(name: str, root: Path, std: StandardPaths) -> Workset:
 
     # Create directory skeleton.
     root.mkdir(parents=True)
-    for subdir in ("settings", "workspaces", "shell", "vault"):
+    for subdir in ("projects", "workspaces", "vault"):
         (root / subdir).mkdir()
 
     ws = Workset(
@@ -231,7 +229,7 @@ def add_project(ws: Workset, name: str, source_path: Path) -> WorksetProject:
             )
 
     # Create per-project directories.
-    for parent in (ws.settings_dir, ws.workspaces_dir, ws.shell_dir):
+    for parent in (ws.projects_dir, ws.workspaces_dir):
         (parent / name).mkdir(parents=True, exist_ok=True)
     vault_proj = ws.vault_dir / name
     (vault_proj / "share-ro").mkdir(parents=True, exist_ok=True)
@@ -265,7 +263,7 @@ def remove_project(
 
     if remove_files:
         import shutil
-        for parent in (ws.settings_dir, ws.workspaces_dir, ws.shell_dir, ws.vault_dir):
+        for parent in (ws.projects_dir, ws.workspaces_dir, ws.vault_dir):
             proj_dir = parent / name
             if proj_dir.is_dir():
                 shutil.rmtree(proj_dir)

@@ -177,14 +177,12 @@ class ContainerRuntime:
         self,
         image: str,
         *,
+        home_path: Path,
         project_path: Path,
-        settings_path: Path,
-        dot_path: Path,
-        cfg_file: Path,
-        shell_path: Path,
         vault_ro_path: Path,
         vault_rw_path: Path,
-        claude_install: ClaudeInstall | None = None,
+        extra_mounts: list | None = None,
+        vault_tmpfs: bool = False,
         name: str | None = None,
         entrypoint: str | None = None,
         cli_args: list[str] | None = None,
@@ -192,16 +190,11 @@ class ContainerRuntime:
         """Run a container and return the exit code."""
         cmd: list[str] = [
             self.cmd, "run", "-it", "--rm", "--userns=keep-id",
-            # Persistent agent home (shell)
-            "-v", f"{shell_path}:/home/agent:Z,U",
+            # Persistent agent home
+            "-v", f"{home_path}:/home/agent:Z,U",
             # Project workspace
             "-v", f"{project_path}:/home/agent/workspace:Z,U",
             "-w", "/home/agent/workspace",
-            # Project settings (visible to agent as .kanibako)
-            "-v", f"{settings_path}:/home/agent/.kanibako:Z,U",
-            # Claude config mirror
-            "-v", f"{dot_path}:/home/agent/.claude:Z,U",
-            "-v", f"{cfg_file}:/home/agent/.claude.json:Z,U",
         ]
         # Vault mounts (only if directories exist)
         if vault_ro_path.is_dir():
@@ -212,12 +205,13 @@ class ContainerRuntime:
             cmd += ["-v", f"{vault_rw_path}:/home/agent/share-rw:Z,U"]
         else:
             print(f"Note: Vault read-write directory not found ({vault_rw_path}), skipping mount.", file=sys.stderr)
-        # Mount host's Claude installation if available
-        if claude_install:
-            cmd += [
-                "-v", f"{claude_install.install_dir}:/home/agent/.local/share/claude:ro",
-                "-v", f"{claude_install.binary}:/home/agent/.local/bin/claude:ro",
-            ]
+        # AC vault hiding: read-only tmpfs over workspace/vault
+        if vault_tmpfs:
+            cmd += ["--mount", "type=tmpfs,dst=/home/agent/workspace/vault,ro"]
+        # Extra mounts (target binary mounts, etc.)
+        if extra_mounts:
+            for mount in extra_mounts:
+                cmd += ["-v", mount.to_volume_arg()]
         if name:
             cmd += ["--name", name]
         if entrypoint:

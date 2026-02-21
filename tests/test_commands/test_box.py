@@ -69,7 +69,7 @@ class TestBoxMigrate:
         proj = resolve_project(std, config, project_dir=str(old_dir), initialize=True)
 
         # Create a marker file to verify data is preserved.
-        marker = proj.settings_path / "marker.txt"
+        marker = proj.metadata_path / "marker.txt"
         marker.write_text("hello")
 
         # Create new project directory.
@@ -86,17 +86,17 @@ class TestBoxMigrate:
         assert rc == 0
 
         # Old settings should be gone.
-        assert not proj.settings_path.exists()
+        assert not proj.metadata_path.exists()
 
         # New settings should exist with preserved data.
         new_hash = project_hash(str(new_dir.resolve()))
-        projects_base = std.data_path / config.paths_projects_path
-        new_settings = projects_base / new_hash
-        assert new_settings.is_dir()
-        assert (new_settings / "marker.txt").read_text() == "hello"
+        projects_base = std.data_path / "projects"
+        new_project = projects_base / new_hash
+        assert new_project.is_dir()
+        assert (new_project / "marker.txt").read_text() == "hello"
 
         # Breadcrumb should be updated.
-        assert (new_settings / "project-path.txt").read_text().strip() == str(new_dir.resolve())
+        assert (new_project / "project-path.txt").read_text().strip() == str(new_dir.resolve())
 
     def test_migrate_same_path_error(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
@@ -194,9 +194,9 @@ class TestBoxMigrate:
 
         # Verify data landed under CWD's hash.
         new_hash = project_hash(str(cwd.resolve()))
-        projects_base = std.data_path / config.paths_projects_path
-        new_settings = projects_base / new_hash
-        assert new_settings.is_dir()
+        projects_base = std.data_path / "projects"
+        new_project = projects_base / new_hash
+        assert new_project.is_dir()
 
     def test_migrate_warns_on_lock_file(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
@@ -209,7 +209,7 @@ class TestBoxMigrate:
         proj = resolve_project(std, config, project_dir=str(old_dir), initialize=True)
 
         # Create a lock file.
-        (proj.settings_path / ".kanibako.lock").touch()
+        (proj.metadata_path / ".kanibako.lock").touch()
 
         new_dir = tmp_home / "new_locked_proj"
         new_dir.mkdir()
@@ -243,7 +243,7 @@ class TestBoxDuplicate:
         src_dir.mkdir()
         (src_dir / "code.py").write_text("print('hello')")
         proj = resolve_project(std, config, project_dir=str(src_dir), initialize=True)
-        (proj.settings_path / "marker.txt").write_text("session-data")
+        (proj.metadata_path / "marker.txt").write_text("session-data")
 
         dst_dir = tmp_home / "dst_project"
 
@@ -255,14 +255,14 @@ class TestBoxDuplicate:
 
         # Metadata copied with updated breadcrumb.
         new_hash = project_hash(str(dst_dir.resolve()))
-        projects_base = std.data_path / config.paths_projects_path
-        new_settings = projects_base / new_hash
-        assert (new_settings / "marker.txt").read_text() == "session-data"
-        assert (new_settings / "project-path.txt").read_text().strip() == str(dst_dir.resolve())
+        projects_base = std.data_path / "projects"
+        new_project = projects_base / new_hash
+        assert (new_project / "marker.txt").read_text() == "session-data"
+        assert (new_project / "project-path.txt").read_text().strip() == str(dst_dir.resolve())
 
         # Source is intact.
         assert (src_dir / "code.py").read_text() == "print('hello')"
-        assert proj.settings_path.is_dir()
+        assert proj.metadata_path.is_dir()
 
     def test_duplicate_bare(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_duplicate
@@ -284,7 +284,7 @@ class TestBoxDuplicate:
 
         # Metadata exists.
         new_hash = project_hash(str(dst_dir.resolve()))
-        projects_base = std.data_path / config.paths_projects_path
+        projects_base = std.data_path / "projects"
         assert (projects_base / new_hash).is_dir()
 
     def test_duplicate_source_not_dir_error(self, config_file, tmp_home, credentials_dir):
@@ -348,7 +348,7 @@ class TestBoxDuplicate:
         src_dir = tmp_home / "locked_src"
         src_dir.mkdir()
         proj = resolve_project(std, config, project_dir=str(src_dir), initialize=True)
-        (proj.settings_path / ".kanibako.lock").touch()
+        (proj.metadata_path / ".kanibako.lock").touch()
 
         dst_dir = tmp_home / "locked_dst"
 
@@ -364,7 +364,7 @@ class TestBoxDuplicate:
         src_dir = tmp_home / "lockforce_src"
         src_dir.mkdir()
         proj = resolve_project(std, config, project_dir=str(src_dir), initialize=True)
-        (proj.settings_path / ".kanibako.lock").touch()
+        (proj.metadata_path / ".kanibako.lock").touch()
 
         dst_dir = tmp_home / "lockforce_dst"
 
@@ -380,7 +380,7 @@ class TestBoxDuplicate:
         src_dir = tmp_home / "excl_src"
         src_dir.mkdir()
         proj = resolve_project(std, config, project_dir=str(src_dir), initialize=True)
-        (proj.settings_path / ".kanibako.lock").touch()
+        (proj.metadata_path / ".kanibako.lock").touch()
 
         dst_dir = tmp_home / "excl_dst"
 
@@ -388,9 +388,9 @@ class TestBoxDuplicate:
         assert rc == 0
 
         new_hash = project_hash(str(dst_dir.resolve()))
-        projects_base = std.data_path / config.paths_projects_path
-        new_settings = projects_base / new_hash
-        assert not (new_settings / ".kanibako.lock").exists()
+        projects_base = std.data_path / "projects"
+        new_project = projects_base / new_hash
+        assert not (new_project / ".kanibako.lock").exists()
 
     def test_duplicate_force_overwrites_metadata(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_duplicate
@@ -401,23 +401,23 @@ class TestBoxDuplicate:
         src_dir = tmp_home / "fw_src"
         src_dir.mkdir()
         proj = resolve_project(std, config, project_dir=str(src_dir), initialize=True)
-        (proj.settings_path / "fresh.txt").write_text("new")
+        (proj.metadata_path / "fresh.txt").write_text("new")
 
         dst_dir = tmp_home / "fw_dst"
         dst_dir.mkdir()
         dst_proj = resolve_project(std, config, project_dir=str(dst_dir), initialize=True)
-        (dst_proj.settings_path / "stale.txt").write_text("old")
+        (dst_proj.metadata_path / "stale.txt").write_text("old")
 
         rc = run_duplicate(self._make_args(src_dir, dst_dir, bare=True, force=True))
         assert rc == 0
 
         new_hash = project_hash(str(dst_dir.resolve()))
-        projects_base = std.data_path / config.paths_projects_path
-        new_settings = projects_base / new_hash
+        projects_base = std.data_path / "projects"
+        new_project = projects_base / new_hash
 
         # Fresh data present, stale data gone.
-        assert (new_settings / "fresh.txt").read_text() == "new"
-        assert not (new_settings / "stale.txt").exists()
+        assert (new_project / "fresh.txt").read_text() == "new"
+        assert not (new_project / "stale.txt").exists()
 
     def test_duplicate_force_overwrites_workspace(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_duplicate
@@ -463,7 +463,7 @@ class TestBoxInfo:
         from kanibako.commands.box import run_info
 
         project_dir = tmp_home / "project"
-        (project_dir / ".kanibako").mkdir()
+        (project_dir / "kanibako").mkdir()
 
         args = argparse.Namespace(path=str(project_dir))
         rc = run_info(args)
@@ -487,7 +487,7 @@ class TestBoxInfo:
         std = load_std_paths(config)
         project_dir = str(tmp_home / "project")
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
-        (proj.settings_path / ".kanibako.lock").touch()
+        (proj.metadata_path / ".kanibako.lock").touch()
 
         args = argparse.Namespace(path=project_dir)
         rc = run_info(args)
@@ -497,9 +497,9 @@ class TestBoxInfo:
 
 
 class TestBoxMigrateShell:
-    """Test that same-mode migrate also moves shell/{hash}/."""
+    """Test that same-mode migrate also moves home/ (inside projects/{hash}/)."""
 
-    def test_migrate_moves_shell_data(self, config_file, tmp_home, credentials_dir):
+    def test_migrate_moves_home_data(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
 
         config = load_config(config_file)
@@ -509,8 +509,8 @@ class TestBoxMigrateShell:
         old_dir.mkdir()
         proj = resolve_project(std, config, project_dir=str(old_dir), initialize=True)
 
-        # Add a marker in the shell directory.
-        (proj.shell_path / "shell_marker.txt").write_text("shell-data")
+        # Add a marker in the home directory.
+        (proj.home_path / "shell_marker.txt").write_text("shell-data")
 
         new_dir = tmp_home / "shell_new"
         new_dir.mkdir()
@@ -522,14 +522,14 @@ class TestBoxMigrateShell:
         rc = run_migrate(args)
         assert rc == 0
 
-        # Old shell should be gone.
-        assert not proj.shell_path.exists()
+        # Old home should be gone (parent metadata_path is renamed).
+        assert not proj.home_path.exists()
 
-        # New shell should exist with marker.
+        # New home should exist with marker (inside projects/{hash}/home/).
         new_hash = project_hash(str(new_dir.resolve()))
-        new_shell = std.data_path / "shell" / new_hash
-        assert new_shell.is_dir()
-        assert (new_shell / "shell_marker.txt").read_text() == "shell-data"
+        new_home = std.data_path / "projects" / new_hash / "home"
+        assert new_home.is_dir()
+        assert (new_home / "shell_marker.txt").read_text() == "shell-data"
 
 
 class TestBoxConvert:
@@ -556,22 +556,21 @@ class TestBoxConvert:
         project_dir = tmp_home / "conv_ac"
         project_dir.mkdir()
         proj = resolve_project(std, config, project_dir=str(project_dir), initialize=True)
-        (proj.settings_path / "marker.txt").write_text("settings-data")
-        (proj.shell_path / "custom.sh").write_text("echo hello")
+        (proj.metadata_path / "marker.txt").write_text("settings-data")
+        (proj.home_path / "custom.sh").write_text("echo hello")
 
         args = self._convert_args(project_dir, "decentralized")
         rc = run_migrate(args)
         assert rc == 0
 
         # Decentralized layout should exist.
-        assert (project_dir / ".kanibako").is_dir()
-        assert (project_dir / ".shell").is_dir()
-        assert (project_dir / ".kanibako" / "marker.txt").read_text() == "settings-data"
-        assert (project_dir / ".shell" / "custom.sh").read_text() == "echo hello"
+        assert (project_dir / "kanibako").is_dir()
+        assert (project_dir / "home").is_dir()
+        assert (project_dir / "kanibako" / "marker.txt").read_text() == "settings-data"
+        assert (project_dir / "home" / "custom.sh").read_text() == "echo hello"
 
         # Old AC data should be gone.
-        assert not proj.settings_path.exists()
-        assert not proj.shell_path.exists()
+        assert not proj.metadata_path.exists()
 
     def test_convert_decentralized_to_ac(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
@@ -584,8 +583,8 @@ class TestBoxConvert:
         proj = resolve_decentralized_project(
             std, config, project_dir=str(project_dir), initialize=True,
         )
-        (proj.settings_path / "marker.txt").write_text("dec-settings")
-        (proj.shell_path / "custom.sh").write_text("echo dec")
+        (proj.metadata_path / "marker.txt").write_text("dec-settings")
+        (proj.home_path / "custom.sh").write_text("echo dec")
 
         args = self._convert_args(project_dir, "account-centric")
         rc = run_migrate(args)
@@ -593,18 +592,18 @@ class TestBoxConvert:
 
         # AC layout should exist.
         phash = project_hash(str(project_dir.resolve()))
-        projects_base = std.data_path / config.paths_projects_path
-        ac_settings = projects_base / phash
-        ac_shell = std.data_path / "shell" / phash
+        projects_base = std.data_path / "projects"
+        ac_project = projects_base / phash
+        ac_home = ac_project / "home"
 
-        assert ac_settings.is_dir()
-        assert (ac_settings / "marker.txt").read_text() == "dec-settings"
-        assert ac_shell.is_dir()
-        assert (ac_shell / "custom.sh").read_text() == "echo dec"
+        assert ac_project.is_dir()
+        assert (ac_project / "marker.txt").read_text() == "dec-settings"
+        assert ac_home.is_dir()
+        assert (ac_home / "custom.sh").read_text() == "echo dec"
 
         # Old decentralized data should be gone.
-        assert not (project_dir / ".kanibako").exists()
-        assert not (project_dir / ".shell").exists()
+        assert not (project_dir / "kanibako").exists()
+        assert not (project_dir / "home").exists()
 
     def test_convert_same_mode_error(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
@@ -631,7 +630,7 @@ class TestBoxConvert:
         rc = run_migrate(args)
         assert rc == 1
 
-    def test_convert_preserves_dot_path_contents(self, config_file, tmp_home, credentials_dir):
+    def test_convert_preserves_credentials(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
 
         config = load_config(config_file)
@@ -641,8 +640,8 @@ class TestBoxConvert:
         project_dir.mkdir()
         proj = resolve_project(std, config, project_dir=str(project_dir), initialize=True)
 
-        # The dot_path (dotclaude) should have credentials from initialization.
-        creds_file = proj.dot_path / ".credentials.json"
+        # Credentials should have been copied into home/.claude/.
+        creds_file = proj.home_path / ".claude" / ".credentials.json"
         assert creds_file.exists()
         original_creds = creds_file.read_text()
 
@@ -650,8 +649,8 @@ class TestBoxConvert:
         rc = run_migrate(args)
         assert rc == 0
 
-        # Credentials should survive in new location.
-        new_creds = project_dir / ".kanibako" / config.paths_dot_path / ".credentials.json"
+        # Credentials should survive in new location (home/.claude/).
+        new_creds = project_dir / "home" / ".claude" / ".credentials.json"
         assert new_creds.exists()
         assert new_creds.read_text() == original_creds
 
@@ -664,13 +663,13 @@ class TestBoxConvert:
         project_dir = tmp_home / "conv_shell"
         project_dir.mkdir()
         proj = resolve_project(std, config, project_dir=str(project_dir), initialize=True)
-        (proj.shell_path / "custom_tool").write_text("#!/bin/bash\necho tool")
+        (proj.home_path / "custom_tool").write_text("#!/bin/bash\necho tool")
 
         args = self._convert_args(project_dir, "decentralized")
         rc = run_migrate(args)
         assert rc == 0
 
-        assert (project_dir / ".shell" / "custom_tool").read_text() == "#!/bin/bash\necho tool"
+        assert (project_dir / "home" / "custom_tool").read_text() == "#!/bin/bash\necho tool"
 
     def test_convert_removes_breadcrumb_for_decentralized(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
@@ -687,7 +686,7 @@ class TestBoxConvert:
         assert rc == 0
 
         # Decentralized should NOT have a breadcrumb.
-        assert not (project_dir / ".kanibako" / "project-path.txt").exists()
+        assert not (project_dir / "kanibako" / "project-path.txt").exists()
 
     def test_convert_writes_breadcrumb_for_ac(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
@@ -706,7 +705,7 @@ class TestBoxConvert:
         assert rc == 0
 
         phash = project_hash(str(project_dir.resolve()))
-        projects_base = std.data_path / config.paths_projects_path
+        projects_base = std.data_path / "projects"
         breadcrumb = projects_base / phash / "project-path.txt"
         assert breadcrumb.exists()
         assert breadcrumb.read_text().strip() == str(project_dir.resolve())
@@ -720,14 +719,14 @@ class TestBoxConvert:
         project_dir = tmp_home / "conv_lock_excl"
         project_dir.mkdir()
         proj = resolve_project(std, config, project_dir=str(project_dir), initialize=True)
-        (proj.settings_path / ".kanibako.lock").touch()
+        (proj.metadata_path / ".kanibako.lock").touch()
 
         args = self._convert_args(project_dir, "decentralized", force=True)
         rc = run_migrate(args)
         assert rc == 0
 
         # Lock file should NOT be copied to the new location.
-        assert not (project_dir / ".kanibako" / ".kanibako.lock").exists()
+        assert not (project_dir / "kanibako" / ".kanibako.lock").exists()
 
     def test_convert_warns_on_lock_file(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
@@ -738,7 +737,7 @@ class TestBoxConvert:
         project_dir = tmp_home / "conv_lock_warn"
         project_dir.mkdir()
         proj = resolve_project(std, config, project_dir=str(project_dir), initialize=True)
-        (proj.settings_path / ".kanibako.lock").touch()
+        (proj.metadata_path / ".kanibako.lock").touch()
 
         # Without --force, should abort on lock file.
         args = self._convert_args(project_dir, "decentralized", force=False)
@@ -759,7 +758,7 @@ class TestBoxConvert:
         args = self._convert_args(project_dir, "decentralized", force=True)
         rc = run_migrate(args)
         assert rc == 0
-        assert (project_dir / ".kanibako").is_dir()
+        assert (project_dir / "kanibako").is_dir()
 
     def test_convert_creates_vault_gitignore(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
@@ -800,8 +799,8 @@ class TestBoxConvert:
         gitignore = project_dir / ".gitignore"
         assert gitignore.exists()
         content = gitignore.read_text()
-        assert ".kanibako/" in content
-        assert ".shell/" in content
+        assert "kanibako/" in content
+        assert "home/" in content
 
     def test_convert_defaults_to_cwd(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
@@ -821,7 +820,7 @@ class TestBoxConvert:
         rc = run_migrate(args)
         assert rc == 0
 
-        assert (project_dir / ".kanibako").is_dir()
+        assert (project_dir / "kanibako").is_dir()
 
 
 class TestBoxDuplicateCrossMode:
@@ -845,7 +844,7 @@ class TestBoxDuplicateCrossMode:
         src_dir.mkdir()
         (src_dir / "code.py").write_text("print('hello')")
         proj = resolve_project(std, config, project_dir=str(src_dir), initialize=True)
-        (proj.settings_path / "marker.txt").write_text("ac-data")
+        (proj.metadata_path / "marker.txt").write_text("ac-data")
 
         dst_dir = tmp_home / "dup_ac_dst"
 
@@ -854,11 +853,11 @@ class TestBoxDuplicateCrossMode:
         assert rc == 0
 
         # Destination should have decentralized layout.
-        assert (dst_dir / ".kanibako").is_dir()
-        assert (dst_dir / ".kanibako" / "marker.txt").read_text() == "ac-data"
+        assert (dst_dir / "kanibako").is_dir()
+        assert (dst_dir / "kanibako" / "marker.txt").read_text() == "ac-data"
         assert (dst_dir / "code.py").read_text() == "print('hello')"
         # No breadcrumb in decentralized.
-        assert not (dst_dir / ".kanibako" / "project-path.txt").exists()
+        assert not (dst_dir / "kanibako" / "project-path.txt").exists()
 
     def test_duplicate_decentralized_to_ac(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_duplicate
@@ -872,7 +871,7 @@ class TestBoxDuplicateCrossMode:
         proj = resolve_decentralized_project(
             std, config, project_dir=str(src_dir), initialize=True,
         )
-        (proj.settings_path / "marker.txt").write_text("dec-data")
+        (proj.metadata_path / "marker.txt").write_text("dec-data")
 
         dst_dir = tmp_home / "dup_dec_dst"
 
@@ -882,11 +881,11 @@ class TestBoxDuplicateCrossMode:
 
         # Destination should have AC layout.
         phash = project_hash(str(dst_dir.resolve()))
-        projects_base = std.data_path / config.paths_projects_path
-        ac_settings = projects_base / phash
-        assert ac_settings.is_dir()
-        assert (ac_settings / "marker.txt").read_text() == "dec-data"
-        assert (ac_settings / "project-path.txt").read_text().strip() == str(dst_dir.resolve())
+        projects_base = std.data_path / "projects"
+        ac_project = projects_base / phash
+        assert ac_project.is_dir()
+        assert (ac_project / "marker.txt").read_text() == "dec-data"
+        assert (ac_project / "project-path.txt").read_text().strip() == str(dst_dir.resolve())
         assert (dst_dir / "code.py").read_text() == "print('dec')"
 
     def test_duplicate_cross_mode_bare(self, config_file, tmp_home, credentials_dir):
@@ -907,7 +906,7 @@ class TestBoxDuplicateCrossMode:
         assert rc == 0
 
         # Metadata exists but workspace content not copied.
-        assert (dst_dir / ".kanibako").is_dir()
+        assert (dst_dir / "kanibako").is_dir()
         assert not (dst_dir / "code.py").exists()
 
     def test_duplicate_cross_mode_preserves_source(self, config_file, tmp_home, credentials_dir):
@@ -919,7 +918,7 @@ class TestBoxDuplicateCrossMode:
         src_dir = tmp_home / "dup_preserve_src"
         src_dir.mkdir()
         proj = resolve_project(std, config, project_dir=str(src_dir), initialize=True)
-        (proj.settings_path / "marker.txt").write_text("original")
+        (proj.metadata_path / "marker.txt").write_text("original")
 
         dst_dir = tmp_home / "dup_preserve_dst"
 
@@ -928,8 +927,8 @@ class TestBoxDuplicateCrossMode:
         assert rc == 0
 
         # Source should be unchanged.
-        assert proj.settings_path.is_dir()
-        assert (proj.settings_path / "marker.txt").read_text() == "original"
+        assert proj.metadata_path.is_dir()
+        assert (proj.metadata_path / "marker.txt").read_text() == "original"
 
     def test_duplicate_cross_mode_excludes_lock(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_duplicate
@@ -940,7 +939,7 @@ class TestBoxDuplicateCrossMode:
         src_dir = tmp_home / "dup_lock_src"
         src_dir.mkdir()
         proj = resolve_project(std, config, project_dir=str(src_dir), initialize=True)
-        (proj.settings_path / ".kanibako.lock").touch()
+        (proj.metadata_path / ".kanibako.lock").touch()
 
         dst_dir = tmp_home / "dup_lock_dst"
 
@@ -948,7 +947,7 @@ class TestBoxDuplicateCrossMode:
         rc = run_duplicate(args)
         assert rc == 0
 
-        assert not (dst_dir / ".kanibako" / ".kanibako.lock").exists()
+        assert not (dst_dir / "kanibako" / ".kanibako.lock").exists()
 
     def test_duplicate_cross_mode_to_workset_requires_workset_flag(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_duplicate
@@ -985,8 +984,8 @@ def _make_ac_project(tmp_home, std, config, name="myproj"):
     project_dir.mkdir()
     (project_dir / "code.py").write_text("print('hello')")
     proj = resolve_project(std, config, project_dir=str(project_dir), initialize=True)
-    (proj.settings_path / "marker.txt").write_text("ac-marker")
-    (proj.shell_path / "custom.sh").write_text("echo hello")
+    (proj.metadata_path / "marker.txt").write_text("ac-marker")
+    (proj.home_path / "custom.sh").write_text("echo hello")
     return proj, project_dir
 
 
@@ -998,8 +997,8 @@ def _make_decentral_project(tmp_home, std, config, name="myproj"):
     proj = resolve_decentralized_project(
         std, config, project_dir=str(project_dir), initialize=True,
     )
-    (proj.settings_path / "marker.txt").write_text("dec-marker")
-    (proj.shell_path / "custom.sh").write_text("echo dec")
+    (proj.metadata_path / "marker.txt").write_text("dec-marker")
+    (proj.home_path / "custom.sh").write_text("echo dec")
     return proj, project_dir
 
 
@@ -1081,8 +1080,8 @@ class TestBoxListWorkset:
         source = tmp_home / "nodata_src"
         source.mkdir()
         add_project(ws, "nodata-proj", source)
-        # Remove the settings dir
-        shutil.rmtree(ws.settings_dir / "nodata-proj")
+        # Remove the projects dir
+        shutil.rmtree(ws.projects_dir / "nodata-proj")
 
         args = argparse.Namespace()
         rc = run_list(args)
@@ -1137,14 +1136,13 @@ class TestBoxConvertToWorkset:
         assert rc == 0
 
         # Settings in workset
-        assert (ws.settings_dir / "conv_ac_ws" / "marker.txt").read_text() == "ac-marker"
-        # Shell in workset
-        assert (ws.shell_dir / "conv_ac_ws" / "custom.sh").read_text() == "echo hello"
+        assert (ws.projects_dir / "conv_ac_ws" / "marker.txt").read_text() == "ac-marker"
+        # Home in workset
+        assert (ws.projects_dir / "conv_ac_ws" / "home" / "custom.sh").read_text() == "echo hello"
         # Workspace moved
         assert (ws.workspaces_dir / "conv_ac_ws" / "code.py").read_text() == "print('hello')"
         # Old AC data gone
-        assert not proj.settings_path.exists()
-        assert not proj.shell_path.exists()
+        assert not proj.metadata_path.exists()
 
     def test_convert_decentralized_to_workset(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
@@ -1159,12 +1157,12 @@ class TestBoxConvertToWorkset:
         assert rc == 0
 
         # Settings in workset
-        assert (ws.settings_dir / "conv_dec_ws" / "marker.txt").read_text() == "dec-marker"
-        # Shell in workset
-        assert (ws.shell_dir / "conv_dec_ws" / "custom.sh").read_text() == "echo dec"
+        assert (ws.projects_dir / "conv_dec_ws" / "marker.txt").read_text() == "dec-marker"
+        # Home in workset
+        assert (ws.projects_dir / "conv_dec_ws" / "home" / "custom.sh").read_text() == "echo dec"
         # Old decentralized data gone
-        assert not (project_dir / ".kanibako").exists()
-        assert not (project_dir / ".shell").exists()
+        assert not (project_dir / "kanibako").exists()
+        assert not (project_dir / "home").exists()
 
     def test_convert_to_workset_in_place(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
@@ -1234,8 +1232,8 @@ class TestBoxConvertToWorkset:
         assert rc == 0
 
         # Uses custom name, not directory basename
-        assert (ws.settings_dir / "my-fancy-name").is_dir()
-        assert (ws.settings_dir / "my-fancy-name" / "marker.txt").read_text() == "ac-marker"
+        assert (ws.projects_dir / "my-fancy-name").is_dir()
+        assert (ws.projects_dir / "my-fancy-name" / "marker.txt").read_text() == "ac-marker"
 
     def test_convert_to_workset_preserves_settings(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
@@ -1248,7 +1246,7 @@ class TestBoxConvertToWorkset:
         args = self._convert_args(project_dir, workset="pres-ws")
         rc = run_migrate(args)
         assert rc == 0
-        assert (ws.settings_dir / "conv_pres" / "marker.txt").read_text() == "ac-marker"
+        assert (ws.projects_dir / "conv_pres" / "marker.txt").read_text() == "ac-marker"
 
     def test_convert_to_workset_preserves_workspace(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
@@ -1269,13 +1267,13 @@ class TestBoxConvertToWorkset:
         config = load_config(config_file)
         std = load_std_paths(config)
         proj, project_dir = _make_ac_project(tmp_home, std, config, "conv_lock")
-        (proj.settings_path / ".kanibako.lock").touch()
+        (proj.metadata_path / ".kanibako.lock").touch()
         ws, _ = _make_workset(tmp_home, std, "lock-ws")
 
         args = self._convert_args(project_dir, workset="lock-ws", force=True)
         rc = run_migrate(args)
         assert rc == 0
-        assert not (ws.settings_dir / "conv_lock" / ".kanibako.lock").exists()
+        assert not (ws.projects_dir / "conv_lock" / ".kanibako.lock").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1290,8 +1288,8 @@ class TestBoxConvertFromWorkset:
         source.mkdir()
         add_project(ws, proj_name, source)
         proj = resolve_workset_project(ws, proj_name, std, config, initialize=True)
-        (proj.settings_path / "marker.txt").write_text("ws-marker")
-        (proj.shell_path / "custom.sh").write_text("echo ws")
+        (proj.metadata_path / "marker.txt").write_text("ws-marker")
+        (proj.home_path / "custom.sh").write_text("echo ws")
         # Put some content in workspace
         (ws.workspaces_dir / proj_name / "code.py").write_text("print('ws')")
         return ws, proj
@@ -1321,15 +1319,15 @@ class TestBoxConvertFromWorkset:
 
         # AC layout at source_path
         source_path = proj.project_path  # workspaces/ws-proj
-        dest_path = ws.projects[0].source_path if ws.projects else (tmp_home / "ws-proj_src")
+        dest_path = tmp_home / "ws-proj_src"
         # The source_path recorded in the workset project is used as dest
         phash = project_hash(str(dest_path))
-        projects_base = std.data_path / config.paths_projects_path
-        ac_settings = projects_base / phash
-        assert ac_settings.is_dir()
-        assert (ac_settings / "marker.txt").read_text() == "ws-marker"
+        projects_base = std.data_path / "projects"
+        ac_project = projects_base / phash
+        assert ac_project.is_dir()
+        assert (ac_project / "marker.txt").read_text() == "ws-marker"
         # Breadcrumb written
-        assert (ac_settings / "project-path.txt").exists()
+        assert (ac_project / "project-path.txt").exists()
 
     def test_convert_workset_to_decentralized(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
@@ -1345,8 +1343,8 @@ class TestBoxConvertFromWorkset:
         assert rc == 0
 
         # Decentralized layout at source_path
-        assert (source / ".kanibako").is_dir()
-        assert (source / ".kanibako" / "marker.txt").read_text() == "ws-marker"
+        assert (source / "kanibako").is_dir()
+        assert (source / "kanibako" / "marker.txt").read_text() == "ws-marker"
         assert (source / ".gitignore").exists()
 
     def test_convert_workset_preserves_settings(self, config_file, tmp_home, credentials_dir):
@@ -1362,7 +1360,7 @@ class TestBoxConvertFromWorkset:
         assert rc == 0
 
         dest = tmp_home / "pres-proj_src"
-        assert (dest / ".kanibako" / "marker.txt").read_text() == "ws-marker"
+        assert (dest / "kanibako" / "marker.txt").read_text() == "ws-marker"
 
     def test_convert_workset_excludes_lock(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
@@ -1370,7 +1368,7 @@ class TestBoxConvertFromWorkset:
         config = load_config(config_file)
         std = load_std_paths(config)
         ws, proj = self._make_workset_proj(tmp_home, std, config, "lock-ws2", "lock-proj")
-        (proj.settings_path / ".kanibako.lock").touch()
+        (proj.metadata_path / ".kanibako.lock").touch()
         workspace_path = ws.workspaces_dir / "lock-proj"
 
         args = self._convert_args(workspace_path, "decentralized", force=True)
@@ -1378,7 +1376,7 @@ class TestBoxConvertFromWorkset:
         assert rc == 0
 
         dest = tmp_home / "lock-proj_src"
-        assert not (dest / ".kanibako" / ".kanibako.lock").exists()
+        assert not (dest / "kanibako" / ".kanibako.lock").exists()
 
     def test_convert_workset_removes_registration(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_migrate
@@ -1423,11 +1421,11 @@ class TestBoxDuplicateToWorkset:
         assert rc == 0
 
         # Workset copy exists
-        assert (ws.settings_dir / "dup_ac_src" / "marker.txt").read_text() == "ac-marker"
+        assert (ws.projects_dir / "dup_ac_src" / "marker.txt").read_text() == "ac-marker"
         assert (ws.workspaces_dir / "dup_ac_src" / "code.py").read_text() == "print('hello')"
         # Source untouched
-        assert proj.settings_path.is_dir()
-        assert (proj.settings_path / "marker.txt").read_text() == "ac-marker"
+        assert proj.metadata_path.is_dir()
+        assert (proj.metadata_path / "marker.txt").read_text() == "ac-marker"
 
     def test_duplicate_to_workset_bare(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.box import run_duplicate
@@ -1442,7 +1440,7 @@ class TestBoxDuplicateToWorkset:
         assert rc == 0
 
         # Metadata exists
-        assert (ws.settings_dir / "dup_bare_src" / "marker.txt").read_text() == "ac-marker"
+        assert (ws.projects_dir / "dup_bare_src" / "marker.txt").read_text() == "ac-marker"
         # Workspace NOT copied (skeleton dir exists from add_project but no code.py)
         assert not (ws.workspaces_dir / "dup_bare_src" / "code.py").exists()
 
@@ -1470,9 +1468,9 @@ class TestBoxDuplicateToWorkset:
         assert rc == 0
 
         # Source untouched
-        assert proj.settings_path.is_dir()
+        assert proj.metadata_path.is_dir()
         assert (project_dir / "code.py").read_text() == "print('hello')"
-        assert (proj.settings_path / "marker.txt").read_text() == "ac-marker"
+        assert (proj.metadata_path / "marker.txt").read_text() == "ac-marker"
 
 
 # ---------------------------------------------------------------------------
@@ -1486,8 +1484,8 @@ class TestBoxDuplicateFromWorkset:
         source.mkdir()
         add_project(ws, proj_name, source)
         proj = resolve_workset_project(ws, proj_name, std, config, initialize=True)
-        (proj.settings_path / "marker.txt").write_text("ws-dup-marker")
-        (proj.shell_path / "custom.sh").write_text("echo ws-dup")
+        (proj.metadata_path / "marker.txt").write_text("ws-dup-marker")
+        (proj.home_path / "custom.sh").write_text("echo ws-dup")
         (ws.workspaces_dir / proj_name / "code.py").write_text("print('ws-dup')")
         return ws, proj
 
@@ -1513,10 +1511,10 @@ class TestBoxDuplicateFromWorkset:
 
         # AC layout at destination
         phash = project_hash(str(dest.resolve()))
-        projects_base = std.data_path / config.paths_projects_path
-        ac_settings = projects_base / phash
-        assert ac_settings.is_dir()
-        assert (ac_settings / "marker.txt").read_text() == "ws-dup-marker"
+        projects_base = std.data_path / "projects"
+        ac_project = projects_base / phash
+        assert ac_project.is_dir()
+        assert (ac_project / "marker.txt").read_text() == "ws-dup-marker"
         assert (dest / "code.py").read_text() == "print('ws-dup')"
 
     def test_duplicate_workset_to_decentralized(self, config_file, tmp_home, credentials_dir):
@@ -1532,8 +1530,8 @@ class TestBoxDuplicateFromWorkset:
         rc = run_duplicate(args)
         assert rc == 0
 
-        assert (dest / ".kanibako").is_dir()
-        assert (dest / ".kanibako" / "marker.txt").read_text() == "ws-dup-marker"
+        assert (dest / "kanibako").is_dir()
+        assert (dest / "kanibako" / "marker.txt").read_text() == "ws-dup-marker"
         assert (dest / "code.py").read_text() == "print('ws-dup')"
 
     def test_duplicate_workset_bare(self, config_file, tmp_home, credentials_dir):
@@ -1550,7 +1548,7 @@ class TestBoxDuplicateFromWorkset:
         assert rc == 0
 
         # Metadata exists but workspace not copied
-        assert (dest / ".kanibako" / "marker.txt").read_text() == "ws-dup-marker"
+        assert (dest / "kanibako" / "marker.txt").read_text() == "ws-dup-marker"
         assert not (dest / "code.py").exists()
 
     def test_duplicate_workset_preserves_source(self, config_file, tmp_home, credentials_dir):
@@ -1567,6 +1565,6 @@ class TestBoxDuplicateFromWorkset:
         assert rc == 0
 
         # Source untouched
-        assert proj.settings_path.is_dir()
-        assert (proj.settings_path / "marker.txt").read_text() == "ws-dup-marker"
+        assert proj.metadata_path.is_dir()
+        assert (proj.metadata_path / "marker.txt").read_text() == "ws-dup-marker"
         assert (workspace_path / "code.py").read_text() == "print('ws-dup')"

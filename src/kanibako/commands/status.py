@@ -99,8 +99,8 @@ def run_status(args: argparse.Namespace) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    # Check if the project has been initialized (has settings on disk).
-    has_data = proj.settings_path.is_dir()
+    # Check if the project has been initialized (has metadata on disk).
+    has_data = proj.metadata_path.is_dir()
 
     if not has_data:
         print(f"No project data found for: {proj.project_path}")
@@ -114,19 +114,19 @@ def run_status(args: argparse.Namespace) -> int:
         return 1
 
     # Load merged config for image info.
-    project_toml = proj.settings_path / "project.toml"
+    project_toml = proj.metadata_path / "project.toml"
     merged = load_merged_config(
         config_file,
         project_toml if project_toml.exists() else None,
     )
 
     # Gather status info.
-    lock_file = proj.settings_path / ".kanibako.lock"
+    lock_file = proj.metadata_path / ".kanibako.lock"
     lock_held = lock_file.exists()
 
     container_running, container_detail = _check_container_running(proj.project_hash)
 
-    creds_file = proj.dot_path / ".credentials.json"
+    creds_file = proj.home_path / ".claude" / ".credentials.json"
     cred_age = _format_credential_age(creds_file)
 
     # Display mode name with dashes for readability.
@@ -137,8 +137,8 @@ def run_status(args: argparse.Namespace) -> int:
         ("Mode", mode_display),
         ("Project", str(proj.project_path)),
         ("Hash", short_hash(proj.project_hash)),
-        ("Settings", str(proj.settings_path)),
-        ("Shell", str(proj.shell_path)),
+        ("Metadata", str(proj.metadata_path)),
+        ("Home", str(proj.home_path)),
         ("Vault RO", str(proj.vault_ro_path)),
         ("Vault RW", str(proj.vault_rw_path)),
         ("Image", merged.container_image),

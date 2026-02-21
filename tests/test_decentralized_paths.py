@@ -55,10 +55,8 @@ class TestResolveDecentralizedProject:
         )
         resolved = project_dir.resolve()
         assert proj.project_path == resolved
-        assert proj.settings_path == resolved / ".kanibako"
-        assert proj.dot_path == resolved / ".kanibako" / config.paths_dot_path
-        assert proj.cfg_file == resolved / ".kanibako" / config.paths_cfg_file
-        assert proj.shell_path == resolved / ".shell"
+        assert proj.metadata_path == resolved / "kanibako"
+        assert proj.home_path == resolved / "home"
         assert proj.vault_ro_path == resolved / "vault" / "share-ro"
         assert proj.vault_rw_path == resolved / "vault" / "share-rw"
 
@@ -79,14 +77,14 @@ class TestResolveDecentralizedProject:
         proj = resolve_decentralized_project(std, config, project_dir=None)
         assert proj.project_path == project_dir.resolve()
 
-    def test_initialize_creates_settings_and_dot_path(
+    def test_initialize_creates_metadata_and_home(
         self, std, config, project_dir, credentials_dir,
     ):
         proj = resolve_decentralized_project(
             std, config, str(project_dir), initialize=True,
         )
-        assert proj.settings_path.is_dir()
-        assert proj.dot_path.is_dir()
+        assert proj.metadata_path.is_dir()
+        assert proj.home_path.is_dir()
 
     def test_initialize_copies_credentials(
         self, std, config, project_dir, credentials_dir,
@@ -94,7 +92,7 @@ class TestResolveDecentralizedProject:
         proj = resolve_decentralized_project(
             std, config, str(project_dir), initialize=True,
         )
-        creds_file = proj.dot_path / ".credentials.json"
+        creds_file = proj.home_path / ".claude" / ".credentials.json"
         assert creds_file.is_file()
         data = json.loads(creds_file.read_text())
         assert "claudeAiOauth" in data
@@ -105,8 +103,8 @@ class TestResolveDecentralizedProject:
         proj = resolve_decentralized_project(
             std, config, str(project_dir), initialize=True,
         )
-        assert (proj.shell_path / ".bashrc").is_file()
-        assert (proj.shell_path / ".profile").is_file()
+        assert (proj.home_path / ".bashrc").is_file()
+        assert (proj.home_path / ".profile").is_file()
 
     def test_initialize_creates_vault_dirs(
         self, std, config, project_dir, credentials_dir,
@@ -131,7 +129,7 @@ class TestResolveDecentralizedProject:
         proj = resolve_decentralized_project(
             std, config, str(project_dir), initialize=False,
         )
-        assert not proj.settings_path.is_dir()
+        assert not proj.metadata_path.is_dir()
         assert not proj.is_new
 
     def test_is_new_true_on_first_init(
@@ -160,53 +158,24 @@ class TestResolveDecentralizedProject:
         proj = resolve_decentralized_project(
             std, config, str(project_dir), initialize=True,
         )
-        assert not (proj.settings_path / "project-path.txt").exists()
+        assert not (proj.metadata_path / "project-path.txt").exists()
 
-    def test_recovery_missing_dot_path(
+    def test_recovery_missing_home_path(
         self, std, config, project_dir, credentials_dir,
     ):
         proj = resolve_decentralized_project(
             std, config, str(project_dir), initialize=True,
         )
         import shutil
-        shutil.rmtree(proj.dot_path)
-        assert not proj.dot_path.exists()
+        shutil.rmtree(proj.home_path)
+        assert not proj.home_path.exists()
 
         proj2 = resolve_decentralized_project(
             std, config, str(project_dir), initialize=True,
         )
-        assert proj2.dot_path.is_dir()
-
-    def test_recovery_missing_cfg_file(
-        self, std, config, project_dir, credentials_dir,
-    ):
-        proj = resolve_decentralized_project(
-            std, config, str(project_dir), initialize=True,
-        )
-        proj.cfg_file.unlink()
-        assert not proj.cfg_file.exists()
-
-        proj2 = resolve_decentralized_project(
-            std, config, str(project_dir), initialize=True,
-        )
-        assert proj2.cfg_file.exists()
-
-    def test_recovery_missing_shell(
-        self, std, config, project_dir, credentials_dir,
-    ):
-        proj = resolve_decentralized_project(
-            std, config, str(project_dir), initialize=True,
-        )
-        import shutil
-        shutil.rmtree(proj.shell_path)
-        assert not proj.shell_path.exists()
-
-        proj2 = resolve_decentralized_project(
-            std, config, str(project_dir), initialize=True,
-        )
-        assert proj2.shell_path.is_dir()
-        assert (proj2.shell_path / ".bashrc").is_file()
-        assert (proj2.shell_path / ".profile").is_file()
+        assert proj2.home_path.is_dir()
+        assert (proj2.home_path / ".bashrc").is_file()
+        assert (proj2.home_path / ".profile").is_file()
 
 
 # ---------------------------------------------------------------------------
@@ -220,11 +189,11 @@ class TestDecentralizedCredentialFlow:
         proj = resolve_decentralized_project(
             std, config, str(project_dir), initialize=True,
         )
-        creds_file = proj.dot_path / ".credentials.json"
+        creds_file = proj.home_path / ".claude" / ".credentials.json"
         assert creds_file.is_file()
-        # Path should be under .kanibako/, not $XDG_DATA_HOME.
+        # Path should be under home/, not $XDG_DATA_HOME.
         resolved = project_dir.resolve()
-        assert str(resolved / ".kanibako") in str(creds_file)
+        assert str(resolved / "home") in str(creds_file)
 
     def test_refresh_central_to_project_works(
         self, std, config, project_dir, credentials_dir,
@@ -235,7 +204,7 @@ class TestDecentralizedCredentialFlow:
         from kanibako.credentials import refresh_central_to_project
 
         central = std.credentials_path / config.paths_dot_path / ".credentials.json"
-        project_creds = proj.dot_path / ".credentials.json"
+        project_creds = proj.home_path / ".claude" / ".credentials.json"
 
         # Touch central to ensure it's newer.
         import time

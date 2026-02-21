@@ -51,7 +51,7 @@ def _stop_one(runtime: ContainerRuntime, *, project_dir: str | None) -> int:
     proj = resolve_project(std, config, project_dir=project_dir, initialize=False)
     container_name = f"kanibako-{short_hash(proj.project_hash)}"
 
-    lock_file = proj.settings_path / ".kanibako.lock"
+    lock_file = proj.metadata_path / ".kanibako.lock"
 
     if runtime.stop(container_name):
         print(f"Stopped {container_name}")

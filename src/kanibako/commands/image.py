@@ -81,7 +81,7 @@ def run_list(args: argparse.Namespace) -> int:
     proj = resolve_project(std, config, project_dir=args.project, initialize=False)
 
     # Merged config for current image display
-    project_toml = proj.settings_path / "project.toml"
+    project_toml = proj.metadata_path / "project.toml"
     merged = load_merged_config(config_file, project_toml)
 
     # ---- Built-in Variants ----

@@ -51,15 +51,15 @@ class TestConcurrencyLock:
             assert len(flock_calls) == 2
 
     def test_lock_file_path(self, start_mocks):
-        """Lock file is created under settings_path."""
+        """Lock file is created under metadata_path."""
         with start_mocks() as m:
             _run_container(
                 project_dir=None, entrypoint=None, image_override=None,
                 new_session=False, safe_mode=False, resume_mode=False,
                 extra_args=[],
             )
-            # settings_path / ".kanibako.lock" was accessed
-            m.proj.settings_path.__truediv__.assert_called_with(".kanibako.lock")
+            # metadata_path / ".kanibako.lock" was accessed
+            m.proj.metadata_path.__truediv__.assert_called_with(".kanibako.lock")
 
 
 # ---------------------------------------------------------------------------

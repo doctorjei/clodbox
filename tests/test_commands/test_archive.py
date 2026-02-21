@@ -21,8 +21,8 @@ class TestArchive:
         project_dir = str(tmp_home / "project")
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
 
-        # Put some data in settings
-        (proj.settings_path / "test_data.txt").write_text("hello")
+        # Put some data in metadata
+        (proj.metadata_path / "test_data.txt").write_text("hello")
 
         archive_path = str(tmp_home / "test.txz")
         args = argparse.Namespace(

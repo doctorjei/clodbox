@@ -43,10 +43,10 @@ class TestStopOne:
         ):
             proj = MagicMock()
             proj.project_hash = "abcdef1234567890" * 4
-            proj.settings_path = MagicMock()
+            proj.metadata_path = MagicMock()
             lock_path = MagicMock()
             lock_path.__str__ = lambda self: "/fake/path/.kanibako.lock"
-            proj.settings_path.__truediv__ = MagicMock(return_value=lock_path)
+            proj.metadata_path.__truediv__ = MagicMock(return_value=lock_path)
             m_resolve.return_value = proj
 
             rc = _stop_one(mock_runtime, project_dir=None)

@@ -153,10 +153,8 @@ class TestDecentralizedLaunch:
         proj.mode = ProjectMode.decentralized
         proj.project_path = project_path
         proj.project_hash = "abc123"
-        proj.settings_path = project_path / ".kanibako"
-        proj.dot_path = project_path / ".kanibako" / "dotclaude"
-        proj.cfg_file = project_path / ".kanibako" / "claude.json"
-        proj.shell_path = project_path / ".shell"
+        proj.metadata_path = project_path / "kanibako"
+        proj.home_path = project_path / "home"
         proj.vault_ro_path = project_path / "vault" / "share-ro"
         proj.vault_rw_path = project_path / "vault" / "share-rw"
         return proj
@@ -167,7 +165,7 @@ class TestDecentralizedLaunch:
 
         project = tmp_path / "myproject"
         project.mkdir()
-        (project / ".kanibako").mkdir()
+        (project / "kanibako").mkdir()
 
         with start_mocks() as m:
             proj = self._make_decentralized_proj(project)
@@ -183,12 +181,12 @@ class TestDecentralizedLaunch:
         m.resolve_any_project.assert_called_once()
 
     def test_start_decentralized_creates_lock(self, start_mocks, tmp_path):
-        """.kanibako/.kanibako.lock is used during run."""
+        """kanibako/.kanibako.lock is used during run."""
         from kanibako.commands.start import _run_container
 
         project = tmp_path / "myproject"
         project.mkdir()
-        kanibako_dir = project / ".kanibako"
+        kanibako_dir = project / "kanibako"
         kanibako_dir.mkdir()
 
         with start_mocks() as m:
@@ -212,7 +210,7 @@ class TestDecentralizedLaunch:
 
         project = tmp_path / "myproject"
         project.mkdir()
-        (project / ".kanibako").mkdir()
+        (project / "kanibako").mkdir()
 
         with start_mocks() as m:
             proj = self._make_decentralized_proj(project)
@@ -225,18 +223,18 @@ class TestDecentralizedLaunch:
             )
 
         call_kwargs = m.runtime.run.call_args.kwargs
-        assert call_kwargs["settings_path"] == project / ".kanibako"
-        assert call_kwargs["dot_path"] == project / ".kanibako" / "dotclaude"
-        assert call_kwargs["shell_path"] == project / ".shell"
+        assert call_kwargs["home_path"] == project / "home"
         assert call_kwargs["project_path"] == project
+        assert call_kwargs["vault_ro_path"] == project / "vault" / "share-ro"
+        assert call_kwargs["vault_rw_path"] == project / "vault" / "share-rw"
 
     def test_start_decentralized_credential_flow(self, start_mocks, tmp_path):
-        """Credential refresh uses project's .kanibako/dotclaude/.credentials.json."""
+        """Credential refresh uses project's home/.claude/.credentials.json."""
         from kanibako.commands.start import _run_container
 
         project = tmp_path / "myproject"
         project.mkdir()
-        (project / ".kanibako").mkdir()
+        (project / "kanibako").mkdir()
 
         with start_mocks() as m:
             proj = self._make_decentralized_proj(project)
@@ -251,11 +249,11 @@ class TestDecentralizedLaunch:
         # refresh_central_to_project called with project creds path
         c2p_args = m.refresh_central_to_project.call_args
         project_creds = c2p_args[0][1]
-        assert project_creds == project / ".kanibako" / "dotclaude" / ".credentials.json"
+        assert project_creds == project / "home" / ".claude" / ".credentials.json"
 
         # writeback called with same project creds path
         wb_args = m.writeback.call_args
-        assert wb_args[0][0] == project / ".kanibako" / "dotclaude" / ".credentials.json"
+        assert wb_args[0][0] == project / "home" / ".claude" / ".credentials.json"
 
     def test_shell_works_with_decentralized(self, start_mocks, tmp_path):
         """shell auto-detects decentralized mode via resolve_any_project."""
@@ -263,7 +261,7 @@ class TestDecentralizedLaunch:
 
         import argparse
         args = argparse.Namespace(project=str(tmp_path), entrypoint=None)
-        (tmp_path / ".kanibako").mkdir()
+        (tmp_path / "kanibako").mkdir()
 
         with start_mocks() as m:
             proj = self._make_decentralized_proj(tmp_path)
@@ -280,7 +278,7 @@ class TestDecentralizedLaunch:
 
         import argparse
         args = argparse.Namespace(project=str(tmp_path), safe=False)
-        (tmp_path / ".kanibako").mkdir()
+        (tmp_path / "kanibako").mkdir()
 
         with start_mocks() as m:
             proj = self._make_decentralized_proj(tmp_path)
@@ -315,7 +313,7 @@ class TestDecentralizedLaunch:
 
         project = tmp_path / "myproject"
         project.mkdir()
-        (project / ".kanibako").mkdir()
+        (project / "kanibako").mkdir()
 
         with start_mocks() as m:
             proj = self._make_decentralized_proj(project)
@@ -346,10 +344,8 @@ class TestWorksetLaunch:
         proj.mode = ProjectMode.workset
         proj.project_path = ws_root / "workspaces" / project_name
         proj.project_hash = "ws123abc"
-        proj.settings_path = ws_root / "settings" / project_name
-        proj.dot_path = ws_root / "settings" / project_name / "dotclaude"
-        proj.cfg_file = ws_root / "settings" / project_name / "claude.json"
-        proj.shell_path = ws_root / "shell" / project_name
+        proj.metadata_path = ws_root / "projects" / project_name
+        proj.home_path = ws_root / "projects" / project_name / "home"
         proj.vault_ro_path = ws_root / "vault" / project_name / "share-ro"
         proj.vault_rw_path = ws_root / "vault" / project_name / "share-rw"
         return proj
@@ -377,7 +373,7 @@ class TestWorksetLaunch:
         m.resolve_any_project.assert_called_once()
 
     def test_start_workset_creates_lock(self, start_mocks, tmp_path):
-        """settings/{name}/.kanibako.lock is used during run."""
+        """projects/{name}/.kanibako.lock is used during run."""
         from kanibako.commands.start import _run_container
 
         ws_root = tmp_path / "my-workset"
@@ -418,13 +414,13 @@ class TestWorksetLaunch:
             )
 
         call_kwargs = m.runtime.run.call_args.kwargs
-        assert call_kwargs["settings_path"] == ws_root / "settings" / "myproj"
-        assert call_kwargs["dot_path"] == ws_root / "settings" / "myproj" / "dotclaude"
-        assert call_kwargs["shell_path"] == ws_root / "shell" / "myproj"
+        assert call_kwargs["home_path"] == ws_root / "projects" / "myproj" / "home"
         assert call_kwargs["project_path"] == ws_root / "workspaces" / "myproj"
+        assert call_kwargs["vault_ro_path"] == ws_root / "vault" / "myproj" / "share-ro"
+        assert call_kwargs["vault_rw_path"] == ws_root / "vault" / "myproj" / "share-rw"
 
     def test_start_workset_credential_flow(self, start_mocks, tmp_path):
-        """Credential refresh uses workset settings/{name}/dotclaude/.credentials.json."""
+        """Credential refresh uses workset projects/{name}/home/.claude/.credentials.json."""
         from kanibako.commands.start import _run_container
 
         ws_root = tmp_path / "my-workset"
@@ -445,11 +441,11 @@ class TestWorksetLaunch:
         # refresh_central_to_project called with project creds path
         c2p_args = m.refresh_central_to_project.call_args
         project_creds = c2p_args[0][1]
-        assert project_creds == ws_root / "settings" / "myproj" / "dotclaude" / ".credentials.json"
+        assert project_creds == ws_root / "projects" / "myproj" / "home" / ".claude" / ".credentials.json"
 
         # writeback called with same project creds path
         wb_args = m.writeback.call_args
-        assert wb_args[0][0] == ws_root / "settings" / "myproj" / "dotclaude" / ".credentials.json"
+        assert wb_args[0][0] == ws_root / "projects" / "myproj" / "home" / ".claude" / ".credentials.json"
 
     def test_shell_works_with_workset(self, start_mocks, tmp_path):
         """shell auto-detects workset mode via resolve_any_project."""

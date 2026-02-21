@@ -21,7 +21,7 @@ class TestArchiveExtended:
         std = load_std_paths(config)
         project_dir = str(tmp_home / "project")
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
-        (proj.settings_path / "data.txt").write_text("content")
+        (proj.metadata_path / "data.txt").write_text("content")
         return proj, project_dir
 
     def test_git_uncommitted_blocked(self, config_file, tmp_home, credentials_dir, fake_git_repo):
@@ -156,17 +156,15 @@ class TestArchiveExtended:
             assert any("data.txt" in n for n in names)
 
     def test_archive_decentralized_project(self, config_file, tmp_home):
-        """Archive works for decentralized projects (settings in .kanibako/)."""
+        """Archive works for decentralized projects (settings in kanibako/)."""
         from kanibako.commands.archive import run
 
         config = load_config(config_file)
         std = load_std_paths(config)
         project_dir = tmp_home / "project"
         # Create decentralized marker and some data
-        kanibako_dir = project_dir / ".kanibako"
+        kanibako_dir = project_dir / "kanibako"
         kanibako_dir.mkdir()
-        dot_path = kanibako_dir / config.paths_dot_path
-        dot_path.mkdir(parents=True)
         (kanibako_dir / "data.txt").write_text("decentralized-data")
 
         archive_path = str(tmp_home / "dec.txz")
@@ -202,7 +200,7 @@ class TestArchiveWorkset:
         source.mkdir()
         add_project(ws, "arch-proj", source)
         proj = resolve_workset_project(ws, "arch-proj", std, config, initialize=True)
-        (proj.settings_path / "data.txt").write_text("ws-archive-data")
+        (proj.metadata_path / "data.txt").write_text("ws-archive-data")
 
         import os
         os.chdir(tmp_home)
@@ -230,7 +228,7 @@ class TestArchiveWorkset:
         source.mkdir()
         add_project(ws, "single-proj", source)
         proj = resolve_workset_project(ws, "single-proj", std, config, initialize=True)
-        (proj.settings_path / "data.txt").write_text("single-data")
+        (proj.metadata_path / "data.txt").write_text("single-data")
 
         archive_path = str(tmp_home / "single.txz")
         # Use workspace path as path arg

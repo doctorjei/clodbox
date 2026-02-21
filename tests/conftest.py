@@ -181,9 +181,10 @@ def start_mocks():
             proj = MagicMock()
             proj.is_new = False
             proj.mode = ProjectMode.account_centric
-            proj.settings_path = MagicMock()
-            proj.settings_path.__truediv__ = MagicMock(return_value=MagicMock())
-            proj.dot_path.__truediv__ = MagicMock(return_value=MagicMock())
+            proj.metadata_path = MagicMock()
+            proj.metadata_path.__truediv__ = MagicMock(return_value=MagicMock())
+            proj.home_path = MagicMock()
+            proj.home_path.__truediv__ = MagicMock(return_value=MagicMock())
             m_resolve_any.return_value = proj
 
             merged = MagicMock()

@@ -56,8 +56,8 @@ class TestResolveProject:
         project_dir = str(tmp_home / "project")
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
 
-        assert proj.settings_path.is_dir()
-        assert proj.dot_path.is_dir()
+        assert proj.metadata_path.is_dir()
+        assert proj.home_path.is_dir()
         assert proj.is_new
 
     def test_nonexistent_path_raises(self, config_file, tmp_home):
@@ -74,7 +74,7 @@ class TestResolveProject:
         project_dir = str(tmp_home / "project")
         proj = resolve_project(std, config, project_dir=project_dir, initialize=False)
 
-        assert not proj.settings_path.exists()
+        assert not proj.metadata_path.exists()
         assert not proj.is_new
 
     def test_mode_is_account_centric(self, config_file, tmp_home, credentials_dir):
@@ -87,21 +87,21 @@ class TestResolveProject:
 
 
 class TestDetectProjectMode:
-    def test_account_centric_when_settings_exist(self, config_file, tmp_home, credentials_dir):
+    def test_account_centric_when_projects_dir_exists(self, config_file, tmp_home, credentials_dir):
         config = load_config(config_file)
         std = load_std_paths(config)
         project_dir = tmp_home / "project"
-        # Initialize to create settings/{hash}/
+        # Initialize to create projects/{hash}/
         resolve_project(std, config, project_dir=str(project_dir), initialize=True)
 
         mode = detect_project_mode(project_dir.resolve(), std, config)
         assert mode is ProjectMode.account_centric
 
-    def test_decentralized_when_dot_kanibako_dir_exists(self, config_file, tmp_home):
+    def test_decentralized_when_kanibako_dir_exists(self, config_file, tmp_home):
         config = load_config(config_file)
         std = load_std_paths(config)
         project_dir = tmp_home / "project"
-        (project_dir / ".kanibako").mkdir()
+        (project_dir / "kanibako").mkdir()
 
         mode = detect_project_mode(project_dir.resolve(), std, config)
         assert mode is ProjectMode.decentralized
@@ -110,35 +110,35 @@ class TestDetectProjectMode:
         config = load_config(config_file)
         std = load_std_paths(config)
         project_dir = tmp_home / "project"
-        # No settings dir, no .kanibako dir → default
+        # No projects dir, no kanibako dir -> default
         mode = detect_project_mode(project_dir.resolve(), std, config)
         assert mode is ProjectMode.account_centric
 
     def test_account_centric_takes_priority_over_decentralized(
         self, config_file, tmp_home, credentials_dir
     ):
-        """When both settings/{hash}/ and .kanibako exist, account-centric wins."""
+        """When both projects/{hash}/ and kanibako exist, account-centric wins."""
         config = load_config(config_file)
         std = load_std_paths(config)
         project_dir = tmp_home / "project"
         resolve_project(std, config, project_dir=str(project_dir), initialize=True)
-        (project_dir / ".kanibako").mkdir(exist_ok=True)
+        (project_dir / "kanibako").mkdir(exist_ok=True)
 
         mode = detect_project_mode(project_dir.resolve(), std, config)
         assert mode is ProjectMode.account_centric
 
-    def test_dot_kanibako_file_not_dir_is_not_decentralized(self, config_file, tmp_home):
-        """A .kanibako *file* (not directory) should not trigger decentralized mode."""
+    def test_kanibako_file_not_dir_is_not_decentralized(self, config_file, tmp_home):
+        """A kanibako *file* (not directory) should not trigger decentralized mode."""
         config = load_config(config_file)
         std = load_std_paths(config)
         project_dir = tmp_home / "project"
-        (project_dir / ".kanibako").write_text("not a directory")
+        (project_dir / "kanibako").write_text("not a directory")
 
         mode = detect_project_mode(project_dir.resolve(), std, config)
         assert mode is ProjectMode.account_centric
 
     def test_workset_when_inside_workspaces_dir(self, config_file, tmp_home):
-        """Project inside a registered workset's workspaces/ → workset mode."""
+        """Project inside a registered workset's workspaces/ -> workset mode."""
         config = load_config(config_file)
         std = load_std_paths(config)
 
@@ -164,7 +164,7 @@ class TestDetectProjectMode:
 
         proj_dir = ws_root.resolve() / "workspaces" / "my-proj"
         proj_dir.mkdir(parents=True)
-        # Also create account-centric settings for the same path
+        # Also create account-centric projects dir for the same path
         resolve_project(std, config, project_dir=str(proj_dir), initialize=True)
 
         mode = detect_project_mode(proj_dir, std, config)
@@ -180,19 +180,19 @@ class TestResolveAnyProject:
         proj = resolve_any_project(std, config, project_dir=project_dir, initialize=True)
 
         assert proj.mode is ProjectMode.account_centric
-        assert proj.settings_path.is_dir()
+        assert proj.metadata_path.is_dir()
 
     def test_resolve_any_project_decentralized(self, config_file, tmp_home):
-        """Dispatches to resolve_decentralized_project when .kanibako/ exists."""
+        """Dispatches to resolve_decentralized_project when kanibako/ exists."""
         config = load_config(config_file)
         std = load_std_paths(config)
         project_dir = tmp_home / "project"
-        (project_dir / ".kanibako").mkdir()
+        (project_dir / "kanibako").mkdir()
 
         proj = resolve_any_project(std, config, project_dir=str(project_dir), initialize=False)
 
         assert proj.mode is ProjectMode.decentralized
-        assert proj.settings_path == project_dir.resolve() / ".kanibako"
+        assert proj.metadata_path == project_dir.resolve() / "kanibako"
 
     def test_resolve_any_project_default_cwd(self, config_file, tmp_home, credentials_dir):
         """Uses cwd when project_dir is None."""
@@ -219,8 +219,8 @@ class TestResolveAnyProject:
         proj = resolve_any_project(std, config, project_dir=str(proj_dir), initialize=False)
 
         assert proj.mode is ProjectMode.workset
-        assert proj.settings_path == ws.settings_dir / "myproj"
-        assert proj.shell_path == ws.shell_dir / "myproj"
+        assert proj.metadata_path == ws.projects_dir / "myproj"
+        assert proj.home_path == ws.projects_dir / "myproj" / "home"
 
     def test_resolve_any_project_workset_subdirectory(self, config_file, tmp_home):
         """cwd is workspaces/proj/src/, still resolves correctly."""
@@ -240,7 +240,7 @@ class TestResolveAnyProject:
         assert proj.project_path == ws.workspaces_dir / "myproj"
 
     def test_resolve_any_project_workset_initializes(self, config_file, tmp_home, credentials_dir):
-        """initialize=True creates dot_path etc. for workset project."""
+        """initialize=True creates home_path etc. for workset project."""
         config = load_config(config_file)
         std = load_std_paths(config)
 
@@ -253,8 +253,8 @@ class TestResolveAnyProject:
         proj = resolve_any_project(std, config, project_dir=str(proj_dir), initialize=True)
 
         assert proj.mode is ProjectMode.workset
-        assert proj.dot_path.is_dir()
-        assert proj.cfg_file.exists()
+        assert proj.home_path.is_dir()
+        assert (proj.home_path / ".claude").is_dir()
 
 
 class TestFindWorksetForPath:

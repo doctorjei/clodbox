@@ -97,6 +97,25 @@ class TestConfigGet:
         captured = capsys.readouterr()
         assert "claude.json" in captured.out
 
+    def test_get_target_name(self, config_file, tmp_home, credentials_dir, capsys):
+        from kanibako.commands.config_cmd import run
+
+        config = load_config(config_file)
+        from kanibako.paths import load_std_paths, resolve_project
+        std = load_std_paths(config)
+        project_dir = str(tmp_home / "project")
+        resolve_project(std, config, project_dir=project_dir, initialize=True)
+
+        args = argparse.Namespace(
+            key="target_name", value=None, show=False, clear=False, unset=None,
+            project=project_dir,
+        )
+        rc = run(args)
+        assert rc == 0
+        captured = capsys.readouterr()
+        # Default is empty string
+        assert captured.out.strip() == ""
+
     def test_get_all_config_keys(self, config_file, tmp_home, credentials_dir, capsys):
         """Every field in KanibakoConfig should be gettable."""
         from kanibako.commands.config_cmd import run
@@ -138,7 +157,7 @@ class TestConfigSet:
         assert rc == 0
 
         # Verify the project.toml was written
-        project_toml = proj.settings_path / "project.toml"
+        project_toml = proj.metadata_path / "project.toml"
         assert project_toml.exists()
         loaded = load_config(project_toml)
         assert loaded.container_image == "new-image:v1"
@@ -159,7 +178,7 @@ class TestConfigSet:
         rc = run(args)
         assert rc == 0
 
-        project_toml = proj.settings_path / "project.toml"
+        project_toml = proj.metadata_path / "project.toml"
         assert project_toml.exists()
         loaded = load_config(project_toml)
         assert loaded.paths_dot_path == "custom_dot"
@@ -184,7 +203,7 @@ class TestConfigSet:
         assert "container_image" in captured.out
         assert "full-key-image:v1" in captured.out
 
-        project_toml = proj.settings_path / "project.toml"
+        project_toml = proj.metadata_path / "project.toml"
         loaded = load_config(project_toml)
         assert loaded.container_image == "full-key-image:v1"
 
@@ -212,7 +231,7 @@ class TestConfigSet:
         )
         run(args)
 
-        project_toml = proj.settings_path / "project.toml"
+        project_toml = proj.metadata_path / "project.toml"
         loaded = load_config(project_toml)
         assert loaded.container_image == "multi:v1"
         assert loaded.paths_dot_path == "multi_dot"
@@ -274,6 +293,7 @@ class TestConfigShow:
         captured = capsys.readouterr()
         assert "container_image" in captured.out
         assert "paths_dot_path" in captured.out
+        assert "target_name" in captured.out
 
     def test_show_marks_project_overrides(self, config_file, tmp_home, credentials_dir, capsys):
         from kanibako.commands.config_cmd import run
@@ -285,7 +305,7 @@ class TestConfigShow:
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
 
         # Write a project override
-        project_toml = proj.settings_path / "project.toml"
+        project_toml = proj.metadata_path / "project.toml"
         write_project_config(project_toml, "custom:v1")
 
         args = argparse.Namespace(
@@ -310,7 +330,7 @@ class TestConfigClear:
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
 
         # Write a project override first
-        project_toml = proj.settings_path / "project.toml"
+        project_toml = proj.metadata_path / "project.toml"
         write_project_config(project_toml, "custom:v1")
         assert project_toml.exists()
 
@@ -365,6 +385,7 @@ class TestConfigNoArgs:
         # Should show all config values (same as --show)
         assert "container_image" in captured.out
         assert "paths_dot_path" in captured.out
+        assert "target_name" in captured.out
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +403,7 @@ class TestConfigUnset:
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
 
         # First set a value
-        project_toml = proj.settings_path / "project.toml"
+        project_toml = proj.metadata_path / "project.toml"
         write_project_config(project_toml, "override:v1")
         loaded = load_config(project_toml)
         assert loaded.container_image == "override:v1"
@@ -408,7 +429,7 @@ class TestConfigUnset:
         project_dir = str(tmp_home / "project")
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
 
-        project_toml = proj.settings_path / "project.toml"
+        project_toml = proj.metadata_path / "project.toml"
         write_project_config(project_toml, "alias-test:v1")
 
         args = argparse.Namespace(
@@ -465,7 +486,7 @@ class TestConfigUnset:
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
 
         # Set, then unset
-        project_toml = proj.settings_path / "project.toml"
+        project_toml = proj.metadata_path / "project.toml"
         write_project_config(project_toml, "to-be-unset:v1")
 
         args = argparse.Namespace(
@@ -508,6 +529,15 @@ class TestWriteProjectConfigKey:
         text = p.read_text()
         assert "[container]" in text
         assert 'image = "myimg:v1"' in text
+
+    def test_write_target_key(self, tmp_path):
+        p = tmp_path / "project.toml"
+        write_project_config_key(p, "target_name", "my-target")
+        loaded = load_config(p)
+        assert loaded.target_name == "my-target"
+        text = p.read_text()
+        assert "[target]" in text
+        assert 'name = "my-target"' in text
 
     def test_write_multiple_sections(self, tmp_path):
         """Writing keys from different sections should create both."""
@@ -598,6 +628,10 @@ class TestSplitConfigKey:
         from kanibako.config import _split_config_key
         assert _split_config_key("paths_relative_std_path") == ("paths", "relative_std_path")
 
+    def test_target_key(self):
+        from kanibako.config import _split_config_key
+        assert _split_config_key("target_name") == ("target", "name")
+
     def test_unknown_prefix_raises(self):
         from kanibako.config import _split_config_key
         with pytest.raises(ValueError, match="Cannot determine TOML section"):
@@ -618,6 +652,7 @@ class TestConfigKeys:
         assert "paths_dot_path" in keys
         assert "paths_cfg_file" in keys
         assert "paths_relative_std_path" in keys
+        assert "target_name" in keys
 
 
 # ---------------------------------------------------------------------------

@@ -115,16 +115,16 @@ def _restore_one(std, config, *, project_dir, archive_file, force) -> int:
 
         # Restore session data
         print("Restoring session data... ", end="", flush=True)
-        projects_base = std.data_path / config.paths_projects_path
+        projects_base = std.data_path / "projects"
         projects_base.mkdir(parents=True, exist_ok=True)
 
-        if proj.settings_path.exists():
-            shutil.rmtree(proj.settings_path)
+        if proj.metadata_path.exists():
+            shutil.rmtree(proj.metadata_path)
 
-        shutil.copytree(str(archive_hash_dir), str(proj.settings_path))
+        shutil.copytree(str(archive_hash_dir), str(proj.metadata_path))
 
         # Remove info file from restored data
-        restored_info = proj.settings_path / "kanibako-archive-info.txt"
+        restored_info = proj.metadata_path / "kanibako-archive-info.txt"
         restored_info.unlink(missing_ok=True)
 
         print("done.")

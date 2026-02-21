@@ -182,7 +182,7 @@ def _run_container(
                 break
 
     # Load merged config (global + project)
-    project_toml = proj.settings_path / "project.toml"
+    project_toml = proj.metadata_path / "project.toml"
     merged = load_merged_config(
         config_file,
         project_toml,
@@ -225,7 +225,7 @@ def _run_container(
     container_name = f"kanibako-{short_hash(proj.project_hash)}"
 
     # Concurrency lock (known issue #3)
-    lock_file = proj.settings_path / ".kanibako.lock"
+    lock_file = proj.metadata_path / ".kanibako.lock"
     lock_file.parent.mkdir(parents=True, exist_ok=True)
     lock_fd = open(lock_file, "w")
     try:
@@ -245,7 +245,7 @@ def _run_container(
     try:
         # Credential refresh: host → central → project
         central_creds = std.credentials_path / config.paths_dot_path / ".credentials.json"
-        project_creds = proj.dot_path / ".credentials.json"
+        project_creds = proj.home_path / ".claude" / ".credentials.json"
 
         refresh_host_to_central(central_creds)
         refresh_central_to_project(central_creds, project_creds)
@@ -271,17 +271,28 @@ def _run_container(
 
         cli_args.extend(extra_args)
 
+        # Build extra mounts from target binary detection
+        extra_mounts = []
+        if claude_install:
+            from kanibako.targets.base import Mount
+            extra_mounts.append(
+                Mount(source=claude_install.install_dir,
+                      destination="/home/agent/.local/share/claude", options="ro")
+            )
+            extra_mounts.append(
+                Mount(source=claude_install.binary,
+                      destination="/home/agent/.local/bin/claude", options="ro")
+            )
+
         # Run the container
         rc = runtime.run(
             image,
+            home_path=proj.home_path,
             project_path=proj.project_path,
-            settings_path=proj.settings_path,
-            dot_path=proj.dot_path,
-            cfg_file=proj.cfg_file,
-            shell_path=proj.shell_path,
             vault_ro_path=proj.vault_ro_path,
             vault_rw_path=proj.vault_rw_path,
-            claude_install=claude_install,
+            extra_mounts=extra_mounts or None,
+            vault_tmpfs=(proj.mode == ProjectMode.account_centric),
             name=container_name,
             entrypoint=entrypoint,
             cli_args=cli_args or None,

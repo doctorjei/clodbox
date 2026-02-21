@@ -54,7 +54,7 @@ def run(args: argparse.Namespace) -> int:
 
 def _archive_one(std, config, proj, *, output_file, args) -> int:
     """Archive session data for a single project."""
-    if not proj.settings_path.is_dir():
+    if not proj.metadata_path.is_dir():
         print(f"Error: No session data found for project {proj.project_path}", file=sys.stderr)
         return 1
 
@@ -67,7 +67,7 @@ def _archive_one(std, config, proj, *, output_file, args) -> int:
         archive_file = f"kanibako-{basename}-{h8}-{timestamp}.txz"
 
     # Prepare metadata
-    info_file = proj.settings_path / "kanibako-archive-info.txt"
+    info_file = proj.metadata_path / "kanibako-archive-info.txt"
     lines = [
         f"Project path: {proj.project_path}",
         f"Project hash: {proj.project_hash}",
@@ -116,7 +116,7 @@ def _archive_one(std, config, proj, *, output_file, args) -> int:
     try:
         with tarfile.open(archive_file, "w:xz") as tar:
             tar.add(
-                str(proj.settings_path),
+                str(proj.metadata_path),
                 arcname=proj.project_hash,
             )
     except Exception as e:
@@ -147,8 +147,8 @@ def _archive_all(std, config, args) -> int:
         total += sum(1 for _, status in project_list if status != "no-data")
 
     print(f"Found {total} project(s) to archive:")
-    for settings_path, project_path in projects:
-        h8 = short_hash(settings_path.name)
+    for metadata_path, project_path in projects:
+        h8 = short_hash(metadata_path.name)
         label = str(project_path) if project_path else f"(unknown) {h8}"
         print(f"  {label}")
     for ws_name, ws, project_list in ws_data:
@@ -161,8 +161,8 @@ def _archive_all(std, config, args) -> int:
     failed = 0
 
     # Account-centric projects.
-    for settings_path, project_path in projects:
-        phash = settings_path.name
+    for metadata_path, project_path in projects:
+        phash = metadata_path.name
         h8 = short_hash(phash)
 
         if project_path:
@@ -171,9 +171,9 @@ def _archive_all(std, config, args) -> int:
                     std, config, project_dir=str(project_path), initialize=False
                 )
             except Exception:
-                proj = _stub_project(settings_path, phash, project_path, config)
+                proj = _stub_project(metadata_path, phash, project_path, config)
         else:
-            proj = _stub_project(settings_path, phash, None, config)
+            proj = _stub_project(metadata_path, phash, None, config)
 
         rc = _archive_one(std, config, proj, output_file=None, args=args)
         if rc == 0:
@@ -204,7 +204,7 @@ def _archive_all(std, config, args) -> int:
     return 1 if failed else 0
 
 
-def _stub_project(settings_path, phash, project_path, config):
+def _stub_project(metadata_path, phash, project_path, config):
     """Create a minimal ProjectPaths stand-in for projects whose path is gone."""
     from kanibako.paths import ProjectPaths
 
@@ -212,10 +212,8 @@ def _stub_project(settings_path, phash, project_path, config):
     return ProjectPaths(
         project_path=effective_path,
         project_hash=phash,
-        settings_path=settings_path,
-        dot_path=settings_path / config.paths_dot_path,
-        cfg_file=settings_path / config.paths_cfg_file,
-        shell_path=settings_path.parent.parent / "shell" / phash,
+        metadata_path=metadata_path,
+        home_path=metadata_path / "home",
         vault_ro_path=effective_path / "vault" / "share-ro",
         vault_rw_path=effective_path / "vault" / "share-rw",
         is_new=False,

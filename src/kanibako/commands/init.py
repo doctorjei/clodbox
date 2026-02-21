@@ -102,11 +102,11 @@ def run_new(args: argparse.Namespace) -> int:
     return 0
 
 
-_GITIGNORE_ENTRIES = [".kanibako/", ".shell/"]
+_GITIGNORE_ENTRIES = ["kanibako/", "home/"]
 
 
 def _write_project_gitignore(project_path: Path) -> None:
-    """Append .kanibako/ and .shell/ to the project's root .gitignore."""
+    """Append kanibako/ and home/ to the project's root .gitignore."""
     gitignore = project_path / ".gitignore"
     existing = ""
     if gitignore.is_file():

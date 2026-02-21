@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from kanibako.container import ContainerRuntime, ClaudeInstall
 from kanibako.errors import ContainerError
+from kanibako.targets.base import Mount
 
 
 # ---------------------------------------------------------------------------
@@ -90,169 +91,188 @@ class TestRunCommandAssembly:
     def _make_rt(self):
         return ContainerRuntime(command="/usr/bin/podman")
 
-    def test_volume_mounts(self, tmp_path):
-        rt = self._make_rt()
+    def _base_kwargs(self, tmp_path, *, vault_dirs=True):
+        """Return minimal kwargs for run() using tmp_path for vault dirs."""
         vault_ro = tmp_path / "vault-ro"
         vault_rw = tmp_path / "vault-rw"
-        vault_ro.mkdir()
-        vault_rw.mkdir()
-        with patch("kanibako.container.subprocess.run") as m_run:
-            m_run.return_value = MagicMock(returncode=0)
-            rt.run(
-                "img:latest",
-                project_path=Path("/proj"),
-                dot_path=Path("/dot"),
-                cfg_file=Path("/cfg.json"),
-                settings_path=Path("/settings"),
-                shell_path=Path("/shell"),
-                vault_ro_path=vault_ro,
-                vault_rw_path=vault_rw,
-            )
-            cmd = m_run.call_args[0][0]
-            # Check volume mounts
-            assert "-v" in cmd
-            assert "/shell:/home/agent:Z,U" in cmd
-            assert "/proj:/home/agent/workspace:Z,U" in cmd
-            assert "/settings:/home/agent/.kanibako:Z,U" in cmd
-            assert "/dot:/home/agent/.claude:Z,U" in cmd
-            assert "/cfg.json:/home/agent/.claude.json:Z,U" in cmd
-            assert f"{vault_ro}:/home/agent/share-ro:ro" in cmd
-            assert f"{vault_rw}:/home/agent/share-rw:Z,U" in cmd
+        if vault_dirs:
+            vault_ro.mkdir(exist_ok=True)
+            vault_rw.mkdir(exist_ok=True)
+        return dict(
+            home_path=tmp_path / "home",
+            project_path=tmp_path / "proj",
+            vault_ro_path=vault_ro,
+            vault_rw_path=vault_rw,
+        )
 
-    def test_vault_mounts_skipped_when_missing(self):
+    def test_volume_mounts(self, tmp_path):
         rt = self._make_rt()
+        kwargs = self._base_kwargs(tmp_path)
         with patch("kanibako.container.subprocess.run") as m_run:
             m_run.return_value = MagicMock(returncode=0)
-            rt.run(
-                "img:latest",
-                project_path=Path("/proj"),
-                dot_path=Path("/dot"),
-                cfg_file=Path("/cfg.json"),
-                settings_path=Path("/settings"),
-                shell_path=Path("/shell"),
-                vault_ro_path=Path("/nonexistent/vault-ro"),
-                vault_rw_path=Path("/nonexistent/vault-rw"),
-            )
+            rt.run("img:latest", **kwargs)
             cmd = m_run.call_args[0][0]
-            assert "share-ro" not in " ".join(cmd)
-            assert "share-rw" not in " ".join(cmd)
+            # Core mounts
+            assert f"{kwargs['home_path']}:/home/agent:Z,U" in cmd
+            assert f"{kwargs['project_path']}:/home/agent/workspace:Z,U" in cmd
+            # Vault mounts (dirs exist)
+            assert f"{kwargs['vault_ro_path']}:/home/agent/share-ro:ro" in cmd
+            assert f"{kwargs['vault_rw_path']}:/home/agent/share-rw:Z,U" in cmd
 
-    def test_entrypoint_override(self):
+    def test_vault_mounts_skipped_when_missing(self, tmp_path):
         rt = self._make_rt()
+        kwargs = self._base_kwargs(tmp_path, vault_dirs=False)
         with patch("kanibako.container.subprocess.run") as m_run:
             m_run.return_value = MagicMock(returncode=0)
-            rt.run(
-                "img:latest",
-                project_path=Path("/proj"),
-                dot_path=Path("/dot"),
-                cfg_file=Path("/cfg.json"),
-                settings_path=Path("/settings"),
-                shell_path=Path("/shell"),
-                vault_ro_path=Path("/vault-ro"),
-                vault_rw_path=Path("/vault-rw"),
-                entrypoint="/bin/bash",
-            )
+            rt.run("img:latest", **kwargs)
+            cmd = m_run.call_args[0][0]
+            cmd_str = " ".join(cmd)
+            assert "share-ro" not in cmd_str
+            assert "share-rw" not in cmd_str
+
+    def test_entrypoint_override(self, tmp_path):
+        rt = self._make_rt()
+        kwargs = self._base_kwargs(tmp_path)
+        with patch("kanibako.container.subprocess.run") as m_run:
+            m_run.return_value = MagicMock(returncode=0)
+            rt.run("img:latest", entrypoint="/bin/bash", **kwargs)
             cmd = m_run.call_args[0][0]
             idx = cmd.index("--entrypoint")
             assert cmd[idx + 1] == "/bin/bash"
 
-    def test_no_entrypoint(self):
+    def test_no_entrypoint(self, tmp_path):
         rt = self._make_rt()
+        kwargs = self._base_kwargs(tmp_path)
         with patch("kanibako.container.subprocess.run") as m_run:
             m_run.return_value = MagicMock(returncode=0)
-            rt.run(
-                "img:latest",
-                project_path=Path("/proj"),
-                dot_path=Path("/dot"),
-                cfg_file=Path("/cfg.json"),
-                settings_path=Path("/settings"),
-                shell_path=Path("/shell"),
-                vault_ro_path=Path("/vault-ro"),
-                vault_rw_path=Path("/vault-rw"),
-            )
+            rt.run("img:latest", **kwargs)
             cmd = m_run.call_args[0][0]
             assert "--entrypoint" not in cmd
 
-    def test_cli_args_appended(self):
+    def test_cli_args_appended(self, tmp_path):
         rt = self._make_rt()
+        kwargs = self._base_kwargs(tmp_path)
         with patch("kanibako.container.subprocess.run") as m_run:
             m_run.return_value = MagicMock(returncode=0)
-            rt.run(
-                "img:latest",
-                project_path=Path("/proj"),
-                dot_path=Path("/dot"),
-                cfg_file=Path("/cfg.json"),
-                settings_path=Path("/settings"),
-                shell_path=Path("/shell"),
-                vault_ro_path=Path("/vault-ro"),
-                vault_rw_path=Path("/vault-rw"),
-                cli_args=["--continue", "--verbose"],
-            )
+            rt.run("img:latest", cli_args=["--continue", "--verbose"], **kwargs)
             cmd = m_run.call_args[0][0]
             assert cmd[-2:] == ["--continue", "--verbose"]
 
-    def test_claude_install_mounts(self):
+    def test_extra_mounts(self, tmp_path):
         rt = self._make_rt()
-        claude = ClaudeInstall(
-            binary=Path("/home/user/.local/bin/claude"),
-            install_dir=Path("/home/user/.local/share/claude"),
-        )
+        kwargs = self._base_kwargs(tmp_path)
+        mounts = [
+            Mount(
+                source=Path("/home/user/.local/share/claude"),
+                destination="/home/agent/.local/share/claude",
+                options="ro",
+            ),
+            Mount(
+                source=Path("/home/user/.local/bin/claude"),
+                destination="/home/agent/.local/bin/claude",
+                options="ro",
+            ),
+        ]
         with patch("kanibako.container.subprocess.run") as m_run:
             m_run.return_value = MagicMock(returncode=0)
-            rt.run(
-                "img:latest",
-                project_path=Path("/proj"),
-                dot_path=Path("/dot"),
-                cfg_file=Path("/cfg.json"),
-                settings_path=Path("/settings"),
-                shell_path=Path("/shell"),
-                vault_ro_path=Path("/vault-ro"),
-                vault_rw_path=Path("/vault-rw"),
-                claude_install=claude,
-            )
+            rt.run("img:latest", extra_mounts=mounts, **kwargs)
             cmd = m_run.call_args[0][0]
-            # Check claude mounts are present
             assert "/home/user/.local/share/claude:/home/agent/.local/share/claude:ro" in cmd
             assert "/home/user/.local/bin/claude:/home/agent/.local/bin/claude:ro" in cmd
 
-    def test_no_claude_install(self):
+    def test_no_extra_mounts(self, tmp_path):
         rt = self._make_rt()
+        kwargs = self._base_kwargs(tmp_path)
         with patch("kanibako.container.subprocess.run") as m_run:
             m_run.return_value = MagicMock(returncode=0)
-            rt.run(
-                "img:latest",
-                project_path=Path("/proj"),
-                dot_path=Path("/dot"),
-                cfg_file=Path("/cfg.json"),
-                settings_path=Path("/settings"),
-                shell_path=Path("/shell"),
-                vault_ro_path=Path("/vault-ro"),
-                vault_rw_path=Path("/vault-rw"),
-                claude_install=None,
-            )
+            rt.run("img:latest", extra_mounts=None, **kwargs)
             cmd = m_run.call_args[0][0]
-            # No claude-specific mounts
             cmd_str = " ".join(cmd)
             assert ".local/share/claude" not in cmd_str
 
-    def test_cli_args_none(self):
+    def test_cli_args_none(self, tmp_path):
         rt = self._make_rt()
+        kwargs = self._base_kwargs(tmp_path)
         with patch("kanibako.container.subprocess.run") as m_run:
             m_run.return_value = MagicMock(returncode=0)
-            rt.run(
-                "img:latest",
-                project_path=Path("/proj"),
-                dot_path=Path("/dot"),
-                cfg_file=Path("/cfg.json"),
-                settings_path=Path("/settings"),
-                shell_path=Path("/shell"),
-                vault_ro_path=Path("/vault-ro"),
-                vault_rw_path=Path("/vault-rw"),
-                cli_args=None,
-            )
+            rt.run("img:latest", cli_args=None, **kwargs)
             cmd = m_run.call_args[0][0]
             # Last element should be the image name
             assert cmd[-1] == "img:latest"
+
+    def test_container_name(self, tmp_path):
+        rt = self._make_rt()
+        kwargs = self._base_kwargs(tmp_path)
+        with patch("kanibako.container.subprocess.run") as m_run:
+            m_run.return_value = MagicMock(returncode=0)
+            rt.run("img:latest", name="kanibako-test", **kwargs)
+            cmd = m_run.call_args[0][0]
+            idx = cmd.index("--name")
+            assert cmd[idx + 1] == "kanibako-test"
+
+    def test_vault_tmpfs(self, tmp_path):
+        rt = self._make_rt()
+        kwargs = self._base_kwargs(tmp_path)
+        with patch("kanibako.container.subprocess.run") as m_run:
+            m_run.return_value = MagicMock(returncode=0)
+            rt.run("img:latest", vault_tmpfs=True, **kwargs)
+            cmd = m_run.call_args[0][0]
+            idx = cmd.index("--mount")
+            assert cmd[idx + 1] == "type=tmpfs,dst=/home/agent/workspace/vault,ro"
+
+    def test_vault_tmpfs_false(self, tmp_path):
+        rt = self._make_rt()
+        kwargs = self._base_kwargs(tmp_path)
+        with patch("kanibako.container.subprocess.run") as m_run:
+            m_run.return_value = MagicMock(returncode=0)
+            rt.run("img:latest", vault_tmpfs=False, **kwargs)
+            cmd = m_run.call_args[0][0]
+            assert "--mount" not in cmd
+
+    def test_no_settings_dot_cfg_mounts(self, tmp_path):
+        """Verify old-style settings_path/dot_path/cfg_file mounts are gone."""
+        rt = self._make_rt()
+        kwargs = self._base_kwargs(tmp_path)
+        with patch("kanibako.container.subprocess.run") as m_run:
+            m_run.return_value = MagicMock(returncode=0)
+            rt.run("img:latest", **kwargs)
+            cmd = m_run.call_args[0][0]
+            cmd_str = " ".join(cmd)
+            # Old mounts no longer present
+            assert ".kanibako:" not in cmd_str
+            assert ".claude:" not in cmd_str
+            assert ".claude.json:" not in cmd_str
+
+    def test_returns_exit_code(self, tmp_path):
+        rt = self._make_rt()
+        kwargs = self._base_kwargs(tmp_path)
+        with patch("kanibako.container.subprocess.run") as m_run:
+            m_run.return_value = MagicMock(returncode=42)
+            rc = rt.run("img:latest", **kwargs)
+            assert rc == 42
+
+    def test_working_directory(self, tmp_path):
+        rt = self._make_rt()
+        kwargs = self._base_kwargs(tmp_path)
+        with patch("kanibako.container.subprocess.run") as m_run:
+            m_run.return_value = MagicMock(returncode=0)
+            rt.run("img:latest", **kwargs)
+            cmd = m_run.call_args[0][0]
+            idx = cmd.index("-w")
+            assert cmd[idx + 1] == "/home/agent/workspace"
+
+    def test_base_flags(self, tmp_path):
+        rt = self._make_rt()
+        kwargs = self._base_kwargs(tmp_path)
+        with patch("kanibako.container.subprocess.run") as m_run:
+            m_run.return_value = MagicMock(returncode=0)
+            rt.run("img:latest", **kwargs)
+            cmd = m_run.call_args[0][0]
+            assert cmd[0] == "/usr/bin/podman"
+            assert "run" in cmd
+            assert "-it" in cmd
+            assert "--rm" in cmd
+            assert "--userns=keep-id" in cmd
 
 
 # ---------------------------------------------------------------------------

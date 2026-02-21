@@ -49,7 +49,7 @@ def _purge_one(std, config, path: str, *, force: bool) -> int:
     """Purge session data for a single project."""
     proj = resolve_any_project(std, config, project_dir=path, initialize=False)
 
-    if not proj.settings_path.is_dir():
+    if not proj.metadata_path.is_dir():
         print(f"No session data found for project {proj.project_path}")
         return 0
 
@@ -68,7 +68,7 @@ def _purge_one(std, config, path: str, *, force: bool) -> int:
             return 2
 
     print("Removing session data... ", end="", flush=True)
-    shutil.rmtree(proj.settings_path)
+    shutil.rmtree(proj.metadata_path)
     print("done.")
     print(f"Session data removed for {proj.project_path}")
     return 0
@@ -90,8 +90,8 @@ def _purge_all(std, config, *, force: bool) -> int:
         total += sum(1 for _, status in project_list if status != "no-data")
 
     print(f"Found {total} project(s):")
-    for settings_path, project_path in projects:
-        h8 = short_hash(settings_path.name)
+    for metadata_path, project_path in projects:
+        h8 = short_hash(metadata_path.name)
         label = str(project_path) if project_path else f"(unknown) {h8}"
         print(f"  {label}")
     for ws_name, ws, project_list in ws_data:
@@ -114,10 +114,10 @@ def _purge_all(std, config, *, force: bool) -> int:
     removed = 0
 
     # Account-centric projects.
-    for settings_path, project_path in projects:
-        label = str(project_path) if project_path else short_hash(settings_path.name)
+    for metadata_path, project_path in projects:
+        label = str(project_path) if project_path else short_hash(metadata_path.name)
         print(f"Removing {label}... ", end="", flush=True)
-        shutil.rmtree(settings_path)
+        shutil.rmtree(metadata_path)
         print("done.")
         removed += 1
 
@@ -126,11 +126,11 @@ def _purge_all(std, config, *, force: bool) -> int:
         for proj_name, status in project_list:
             if status == "no-data":
                 continue
-            settings_dir = ws.settings_dir / proj_name
-            if settings_dir.is_dir():
+            project_dir = ws.projects_dir / proj_name
+            if project_dir.is_dir():
                 label = f"{ws_name}/{proj_name}"
                 print(f"Removing {label}... ", end="", flush=True)
-                shutil.rmtree(settings_dir)
+                shutil.rmtree(project_dir)
                 print("done.")
                 removed += 1
 

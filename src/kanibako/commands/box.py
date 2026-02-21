@@ -218,21 +218,21 @@ def run_migrate(args: argparse.Namespace) -> int:
     old_hash = project_hash(str(old_path))
     new_hash = project_hash(str(new_path))
 
-    projects_base = std.data_path / config.paths_projects_path
-    old_settings = projects_base / old_hash
-    new_settings = projects_base / new_hash
+    projects_base = std.data_path / "projects"
+    old_project_dir = projects_base / old_hash
+    new_project_dir = projects_base / new_hash
 
     # Validate: old project data must exist.
-    if not old_settings.is_dir():
+    if not old_project_dir.is_dir():
         print(
             f"Error: no project data found for old path: {old_path}",
             file=sys.stderr,
         )
-        print(f"  (expected: {old_settings})", file=sys.stderr)
+        print(f"  (expected: {old_project_dir})", file=sys.stderr)
         return 1
 
     # Validate: new project data must NOT already exist.
-    if new_settings.is_dir():
+    if new_project_dir.is_dir():
         print(
             f"Error: project data already exists for new path: {new_path}",
             file=sys.stderr,
@@ -241,7 +241,7 @@ def run_migrate(args: argparse.Namespace) -> int:
         return 1
 
     # Warn if lock file exists.
-    lock_file = old_settings / ".kanibako.lock"
+    lock_file = old_project_dir / ".kanibako.lock"
     if lock_file.exists():
         print(
             "Warning: lock file found — a container may be running for this project.",
@@ -266,18 +266,11 @@ def run_migrate(args: argparse.Namespace) -> int:
             print("Aborted.")
             return 2
 
-    # Rename settings.
-    old_settings.rename(new_settings)
-
-    # Also rename shell directory.
-    shell_base = std.data_path / "shell"
-    old_shell = shell_base / old_hash
-    new_shell = shell_base / new_hash
-    if old_shell.is_dir():
-        old_shell.rename(new_shell)
+    # Rename project directory (includes home/ inside it).
+    old_project_dir.rename(new_project_dir)
 
     # Update the breadcrumb.
-    breadcrumb = new_settings / "project-path.txt"
+    breadcrumb = new_project_dir / "project-path.txt"
     breadcrumb.write_text(str(new_path) + "\n")
 
     print(f"Migrated project data:")
@@ -327,12 +320,12 @@ def _run_convert(args: argparse.Namespace, std, config) -> int:
         proj = resolve_decentralized_project(std, config, project_dir=str(project_path), initialize=False)
 
     # Check that project data exists.
-    if not proj.settings_path.is_dir():
+    if not proj.metadata_path.is_dir():
         print(f"Error: no project data found for {project_path}", file=sys.stderr)
         return 1
 
     # Lock file warning.
-    lock_file = proj.settings_path / ".kanibako.lock"
+    lock_file = proj.metadata_path / ".kanibako.lock"
     if lock_file.exists():
         print(
             "Warning: lock file found — a container may be running for this project.",
@@ -370,25 +363,25 @@ def _convert_ac_to_decentral(project_path, std, config, proj):
     """Convert an account-centric project to decentralized layout."""
     from kanibako.commands.init import _write_project_gitignore
 
-    dst_settings = project_path / ".kanibako"
-    dst_shell = project_path / ".shell"
+    dst_metadata = project_path / "kanibako"
+    dst_home = project_path / "home"
 
-    # Copy settings (excluding lock file).
+    # Copy metadata (excluding lock file and home/ directory).
     shutil.copytree(
-        proj.settings_path, dst_settings,
-        ignore=shutil.ignore_patterns(".kanibako.lock"),
+        proj.metadata_path, dst_metadata,
+        ignore=shutil.ignore_patterns(".kanibako.lock", "home"),
     )
 
     # Remove breadcrumb (decentralized doesn't use it).
-    breadcrumb = dst_settings / "project-path.txt"
+    breadcrumb = dst_metadata / "project-path.txt"
     if breadcrumb.exists():
         breadcrumb.unlink()
 
-    # Copy shell.
-    if proj.shell_path.is_dir():
-        shutil.copytree(proj.shell_path, dst_shell)
+    # Copy home.
+    if proj.home_path.is_dir():
+        shutil.copytree(proj.home_path, dst_home)
 
-    # Write .gitignore entries for .kanibako/ and .shell/.
+    # Write .gitignore entries for kanibako/ and home/.
     _write_project_gitignore(project_path)
 
     # Write vault .gitignore if vault exists but gitignore doesn't.
@@ -399,37 +392,33 @@ def _convert_ac_to_decentral(project_path, std, config, proj):
             vault_gitignore.write_text("share-rw/\n")
 
     # Clean up old AC data.
-    shutil.rmtree(proj.settings_path)
-    if proj.shell_path.is_dir():
-        shutil.rmtree(proj.shell_path)
+    shutil.rmtree(proj.metadata_path)
 
 
 def _convert_decentral_to_ac(project_path, std, config, proj):
     """Convert a decentralized project to account-centric layout."""
     phash = project_hash(str(project_path))
-    projects_base = std.data_path / config.paths_projects_path
-    dst_settings = projects_base / phash
-    shell_base = std.data_path / "shell"
-    dst_shell = shell_base / phash
+    projects_base = std.data_path / "projects"
+    dst_project = projects_base / phash
 
-    # Copy settings (excluding lock file).
+    # Copy metadata (excluding lock file).
     shutil.copytree(
-        proj.settings_path, dst_settings,
+        proj.metadata_path, dst_project,
         ignore=shutil.ignore_patterns(".kanibako.lock"),
     )
 
     # Write breadcrumb.
-    (dst_settings / "project-path.txt").write_text(str(project_path) + "\n")
+    (dst_project / "project-path.txt").write_text(str(project_path) + "\n")
 
-    # Copy shell.
-    if proj.shell_path.is_dir():
-        shell_base.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(proj.shell_path, dst_shell)
+    # Copy home into the project dir.
+    if proj.home_path.is_dir():
+        dst_home = dst_project / "home"
+        shutil.copytree(proj.home_path, dst_home)
 
     # Clean up old decentralized data.
-    shutil.rmtree(proj.settings_path)
-    if proj.shell_path.is_dir():
-        shutil.rmtree(proj.shell_path)
+    shutil.rmtree(proj.metadata_path)
+    if proj.home_path.is_dir():
+        shutil.rmtree(proj.home_path)
 
 
 # -- Workset conversion helpers --
@@ -480,12 +469,12 @@ def _convert_to_workset(args, std, config) -> int:
     else:
         src_proj = resolve_decentralized_project(std, config, project_dir=str(project_path), initialize=False)
 
-    if not src_proj.settings_path.is_dir():
+    if not src_proj.metadata_path.is_dir():
         print(f"Error: no project data found for {project_path}", file=sys.stderr)
         return 1
 
     # Lock file warning.
-    lock_file = src_proj.settings_path / ".kanibako.lock"
+    lock_file = src_proj.metadata_path / ".kanibako.lock"
     if lock_file.exists():
         print(
             "Warning: lock file found — a container may be running for this project.",
@@ -514,18 +503,18 @@ def _convert_to_workset(args, std, config) -> int:
     # Register project in workset (creates skeleton dirs).
     add_project(ws, proj_name, project_path)
 
-    # Copy settings (excluding lock and breadcrumb).
-    dst_settings = ws.settings_dir / proj_name
+    # Copy metadata (excluding lock, breadcrumb, and home/).
+    dst_project = ws.projects_dir / proj_name
     shutil.copytree(
-        src_proj.settings_path, dst_settings,
-        ignore=shutil.ignore_patterns(".kanibako.lock", "project-path.txt"),
+        src_proj.metadata_path, dst_project,
+        ignore=shutil.ignore_patterns(".kanibako.lock", "project-path.txt", "home"),
         dirs_exist_ok=True,
     )
 
-    # Copy shell.
-    if src_proj.shell_path.is_dir():
-        dst_shell = ws.shell_dir / proj_name
-        shutil.copytree(src_proj.shell_path, dst_shell, dirs_exist_ok=True)
+    # Copy home.
+    if src_proj.home_path.is_dir():
+        dst_home = dst_project / "home"
+        shutil.copytree(src_proj.home_path, dst_home, dirs_exist_ok=True)
 
     # Move workspace unless --in-place.
     if not in_place:
@@ -533,13 +522,13 @@ def _convert_to_workset(args, std, config) -> int:
         # Copy workspace content (exclude decentralized metadata).
         ignore = None
         if current_mode == ProjectMode.decentralized:
-            ignore = shutil.ignore_patterns(".kanibako", ".shell")
+            ignore = shutil.ignore_patterns("kanibako", "home")
         shutil.copytree(project_path, dst_workspace, ignore=ignore, dirs_exist_ok=True)
 
     # Clean up old metadata.
-    shutil.rmtree(src_proj.settings_path)
-    if src_proj.shell_path.is_dir():
-        shutil.rmtree(src_proj.shell_path)
+    shutil.rmtree(src_proj.metadata_path)
+    if src_proj.home_path.is_dir():
+        shutil.rmtree(src_proj.home_path)
 
     print(f"Converted project to workset mode:")
     print(f"  workset: {ws_name}/{proj_name}")
@@ -555,12 +544,12 @@ def _convert_from_workset(args, project_path, std, config) -> int:
 
     target_mode = ProjectMode.decentralized if to_mode_str == "decentralized" else ProjectMode.account_centric
 
-    if not src_proj.settings_path.is_dir():
+    if not src_proj.metadata_path.is_dir():
         print(f"Error: no project data found for {project_path}", file=sys.stderr)
         return 1
 
     # Lock file warning.
-    lock_file = src_proj.settings_path / ".kanibako.lock"
+    lock_file = src_proj.metadata_path / ".kanibako.lock"
     if lock_file.exists():
         print(
             "Warning: lock file found — a container may be running for this project.",
@@ -615,24 +604,22 @@ def _convert_from_workset(args, project_path, std, config) -> int:
 def _convert_ws_to_ac(src_proj, dest_path, std, config):
     """Copy workset project metadata into account-centric layout."""
     phash = project_hash(str(dest_path))
-    projects_base = std.data_path / config.paths_projects_path
-    dst_settings = projects_base / phash
-    shell_base = std.data_path / "shell"
-    dst_shell = shell_base / phash
+    projects_base = std.data_path / "projects"
+    dst_project = projects_base / phash
 
-    # Copy settings (excluding lock).
+    # Copy metadata (excluding lock and home/).
     shutil.copytree(
-        src_proj.settings_path, dst_settings,
-        ignore=shutil.ignore_patterns(".kanibako.lock"),
+        src_proj.metadata_path, dst_project,
+        ignore=shutil.ignore_patterns(".kanibako.lock", "home"),
     )
 
     # Write breadcrumb.
-    (dst_settings / "project-path.txt").write_text(str(dest_path) + "\n")
+    (dst_project / "project-path.txt").write_text(str(dest_path) + "\n")
 
-    # Copy shell.
-    if src_proj.shell_path.is_dir():
-        shell_base.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(src_proj.shell_path, dst_shell)
+    # Copy home.
+    if src_proj.home_path.is_dir():
+        dst_home = dst_project / "home"
+        shutil.copytree(src_proj.home_path, dst_home)
 
 
 def _convert_ws_to_decentral(src_proj, dest_path):
@@ -640,18 +627,18 @@ def _convert_ws_to_decentral(src_proj, dest_path):
     from kanibako.commands.init import _write_project_gitignore
 
     dest_path.mkdir(parents=True, exist_ok=True)
-    dst_settings = dest_path / ".kanibako"
-    dst_shell = dest_path / ".shell"
+    dst_metadata = dest_path / "kanibako"
+    dst_home = dest_path / "home"
 
-    # Copy settings (excluding lock).
+    # Copy metadata (excluding lock and home/).
     shutil.copytree(
-        src_proj.settings_path, dst_settings,
-        ignore=shutil.ignore_patterns(".kanibako.lock"),
+        src_proj.metadata_path, dst_metadata,
+        ignore=shutil.ignore_patterns(".kanibako.lock", "home"),
     )
 
-    # Copy shell.
-    if src_proj.shell_path.is_dir():
-        shutil.copytree(src_proj.shell_path, dst_shell)
+    # Copy home.
+    if src_proj.home_path.is_dir():
+        shutil.copytree(src_proj.home_path, dst_home)
 
     _write_project_gitignore(dest_path)
 
@@ -698,12 +685,12 @@ def _run_duplicate_cross_mode(args: argparse.Namespace, std, config) -> int:
     else:
         src_proj = resolve_decentralized_project(std, config, project_dir=str(source_path), initialize=False)
 
-    if not src_proj.settings_path.is_dir():
+    if not src_proj.metadata_path.is_dir():
         print(f"Error: no project data found for source path: {source_path}", file=sys.stderr)
         return 1
 
     # Lock file warning.
-    lock_file = src_proj.settings_path / ".kanibako.lock"
+    lock_file = src_proj.metadata_path / ".kanibako.lock"
     if lock_file.exists():
         print(
             "Warning: lock file found — a container may be running for this project.",
@@ -747,28 +734,28 @@ def _duplicate_to_decentral(src_proj, new_path, force):
     """Copy metadata into decentralized layout at new_path."""
     from kanibako.commands.init import _write_project_gitignore
 
-    dst_settings = new_path / ".kanibako"
-    dst_shell = new_path / ".shell"
+    dst_metadata = new_path / "kanibako"
+    dst_home = new_path / "home"
 
     # Ensure new_path exists for bare duplicates.
     new_path.mkdir(parents=True, exist_ok=True)
 
-    if force and dst_settings.is_dir():
-        shutil.rmtree(dst_settings)
+    if force and dst_metadata.is_dir():
+        shutil.rmtree(dst_metadata)
     shutil.copytree(
-        src_proj.settings_path, dst_settings,
-        ignore=shutil.ignore_patterns(".kanibako.lock"),
+        src_proj.metadata_path, dst_metadata,
+        ignore=shutil.ignore_patterns(".kanibako.lock", "home"),
     )
 
     # Remove breadcrumb if present (decentralized doesn't use it).
-    breadcrumb = dst_settings / "project-path.txt"
+    breadcrumb = dst_metadata / "project-path.txt"
     if breadcrumb.exists():
         breadcrumb.unlink()
 
-    if src_proj.shell_path.is_dir():
-        if force and dst_shell.is_dir():
-            shutil.rmtree(dst_shell)
-        shutil.copytree(src_proj.shell_path, dst_shell)
+    if src_proj.home_path.is_dir():
+        if force and dst_home.is_dir():
+            shutil.rmtree(dst_home)
+        shutil.copytree(src_proj.home_path, dst_home)
 
     _write_project_gitignore(new_path)
 
@@ -783,26 +770,24 @@ def _duplicate_to_decentral(src_proj, new_path, force):
 def _duplicate_to_ac(src_proj, new_path, std, config, force):
     """Copy metadata into account-centric layout for new_path."""
     phash = project_hash(str(new_path))
-    projects_base = std.data_path / config.paths_projects_path
-    dst_settings = projects_base / phash
-    shell_base = std.data_path / "shell"
-    dst_shell = shell_base / phash
+    projects_base = std.data_path / "projects"
+    dst_project = projects_base / phash
 
-    if force and dst_settings.is_dir():
-        shutil.rmtree(dst_settings)
+    if force and dst_project.is_dir():
+        shutil.rmtree(dst_project)
     shutil.copytree(
-        src_proj.settings_path, dst_settings,
+        src_proj.metadata_path, dst_project,
         ignore=shutil.ignore_patterns(".kanibako.lock"),
     )
 
     # Write breadcrumb.
-    (dst_settings / "project-path.txt").write_text(str(new_path) + "\n")
+    (dst_project / "project-path.txt").write_text(str(new_path) + "\n")
 
-    if src_proj.shell_path.is_dir():
-        shell_base.mkdir(parents=True, exist_ok=True)
-        if force and dst_shell.is_dir():
-            shutil.rmtree(dst_shell)
-        shutil.copytree(src_proj.shell_path, dst_shell)
+    # Ensure home is inside the project dir.
+    if src_proj.home_path.is_dir():
+        dst_home = dst_project / "home"
+        if not dst_home.is_dir():
+            shutil.copytree(src_proj.home_path, dst_home)
 
 
 def _duplicate_to_workset(args, std, config) -> int:
@@ -843,12 +828,12 @@ def _duplicate_to_workset(args, std, config) -> int:
     else:
         src_proj = resolve_decentralized_project(std, config, project_dir=str(source_path), initialize=False)
 
-    if not src_proj.settings_path.is_dir():
+    if not src_proj.metadata_path.is_dir():
         print(f"Error: no project data found for source path: {source_path}", file=sys.stderr)
         return 1
 
     # Lock file warning.
-    lock_file = src_proj.settings_path / ".kanibako.lock"
+    lock_file = src_proj.metadata_path / ".kanibako.lock"
     if lock_file.exists():
         print(
             "Warning: lock file found — a container may be running for this project.",
@@ -873,25 +858,25 @@ def _duplicate_to_workset(args, std, config) -> int:
     # Register in workset (creates skeleton dirs).
     add_project(ws, proj_name, source_path)
 
-    # Copy settings (excluding lock and breadcrumb).
-    dst_settings = ws.settings_dir / proj_name
+    # Copy metadata (excluding lock, breadcrumb, and home/).
+    dst_project = ws.projects_dir / proj_name
     shutil.copytree(
-        src_proj.settings_path, dst_settings,
-        ignore=shutil.ignore_patterns(".kanibako.lock", "project-path.txt"),
+        src_proj.metadata_path, dst_project,
+        ignore=shutil.ignore_patterns(".kanibako.lock", "project-path.txt", "home"),
         dirs_exist_ok=True,
     )
 
-    # Copy shell.
-    if src_proj.shell_path.is_dir():
-        dst_shell = ws.shell_dir / proj_name
-        shutil.copytree(src_proj.shell_path, dst_shell, dirs_exist_ok=True)
+    # Copy home.
+    if src_proj.home_path.is_dir():
+        dst_home = dst_project / "home"
+        shutil.copytree(src_proj.home_path, dst_home, dirs_exist_ok=True)
 
     # Copy workspace (unless --bare).
     if not args.bare:
         dst_workspace = ws.workspaces_dir / proj_name
         ignore = None
         if source_mode == ProjectMode.decentralized:
-            ignore = shutil.ignore_patterns(".kanibako", ".shell")
+            ignore = shutil.ignore_patterns("kanibako", "home")
         shutil.copytree(source_path, dst_workspace, ignore=ignore, dirs_exist_ok=True)
 
     print(f"Duplicated project to workset:")
@@ -907,14 +892,14 @@ def _duplicate_from_workset(args, source_path, new_path, std, config) -> int:
     ws, proj_name = _find_workset_for_path(source_path, std)
     src_proj = resolve_workset_project(ws, proj_name, std, config, initialize=False)
 
-    if not src_proj.settings_path.is_dir():
+    if not src_proj.metadata_path.is_dir():
         print(f"Error: no project data found for source path: {source_path}", file=sys.stderr)
         return 1
 
     target_mode = ProjectMode.decentralized if to_mode_str == "decentralized" else ProjectMode.account_centric
 
     # Lock file warning.
-    lock_file = src_proj.settings_path / ".kanibako.lock"
+    lock_file = src_proj.metadata_path / ".kanibako.lock"
     if lock_file.exists():
         print(
             "Warning: lock file found — a container may be running for this project.",
@@ -978,10 +963,10 @@ def run_duplicate(args: argparse.Namespace) -> int:
 
     # 3. Source must have kanibako metadata.
     source_hash = project_hash(str(source_path))
-    projects_base = std.data_path / config.paths_projects_path
-    source_settings = projects_base / source_hash
+    projects_base = std.data_path / "projects"
+    source_project_dir = projects_base / source_hash
 
-    if not source_settings.is_dir():
+    if not source_project_dir.is_dir():
         print(
             f"Error: no project data found for source path: {source_path}",
             file=sys.stderr,
@@ -999,9 +984,9 @@ def run_duplicate(args: argparse.Namespace) -> int:
 
     # 5. Destination metadata must not already exist (unless --force).
     new_hash = project_hash(str(new_path))
-    new_settings = projects_base / new_hash
+    new_project_dir = projects_base / new_hash
 
-    if new_settings.is_dir() and not args.force:
+    if new_project_dir.is_dir() and not args.force:
         print(
             f"Error: project data already exists for destination: {new_path}",
             file=sys.stderr,
@@ -1010,7 +995,7 @@ def run_duplicate(args: argparse.Namespace) -> int:
         return 1
 
     # 6. Lock file warning.
-    lock_file = source_settings / ".kanibako.lock"
+    lock_file = source_project_dir / ".kanibako.lock"
     if lock_file.exists():
         print(
             "Warning: lock file found — a container may be running for this project.",
@@ -1037,16 +1022,16 @@ def run_duplicate(args: argparse.Namespace) -> int:
     if not args.bare:
         shutil.copytree(source_path, new_path, dirs_exist_ok=args.force)
 
-    # Copy metadata.
-    if args.force and new_settings.is_dir():
-        shutil.rmtree(new_settings)
+    # Copy metadata (entire project dir including home/).
+    if args.force and new_project_dir.is_dir():
+        shutil.rmtree(new_project_dir)
     shutil.copytree(
-        source_settings, new_settings,
+        source_project_dir, new_project_dir,
         ignore=shutil.ignore_patterns(".kanibako.lock"),
     )
 
     # Update breadcrumb.
-    breadcrumb = new_settings / "project-path.txt"
+    breadcrumb = new_project_dir / "project-path.txt"
     breadcrumb.write_text(str(new_path) + "\n")
 
     print(f"Duplicated project:")
@@ -1066,19 +1051,19 @@ def run_info(args: argparse.Namespace) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    if not proj.settings_path.is_dir():
+    if not proj.metadata_path.is_dir():
         print(f"Error: No project data found for {proj.project_path}", file=sys.stderr)
         return 1
 
     print(f"Mode:      {proj.mode.value}")
     print(f"Project:   {proj.project_path}")
     print(f"Hash:      {short_hash(proj.project_hash)}")
-    print(f"Settings:  {proj.settings_path}")
-    print(f"Shell:     {proj.shell_path}")
+    print(f"Metadata:  {proj.metadata_path}")
+    print(f"Home:      {proj.home_path}")
     print(f"Vault RO:  {proj.vault_ro_path}")
     print(f"Vault RW:  {proj.vault_rw_path}")
 
-    lock_file = proj.settings_path / ".kanibako.lock"
+    lock_file = proj.metadata_path / ".kanibako.lock"
     if lock_file.exists():
         print(f"Lock:      ACTIVE ({lock_file})")
     else:

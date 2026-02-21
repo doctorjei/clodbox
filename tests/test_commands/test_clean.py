@@ -20,7 +20,7 @@ class TestClean:
         project_dir = str(tmp_home / "project")
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
 
-        assert proj.settings_path.is_dir()
+        assert proj.metadata_path.is_dir()
 
         args = argparse.Namespace(
             path=project_dir,
@@ -29,7 +29,7 @@ class TestClean:
         )
         rc = run(args)
         assert rc == 0
-        assert not proj.settings_path.exists()
+        assert not proj.metadata_path.exists()
 
     def test_no_session_data(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.clean import run
@@ -71,8 +71,8 @@ class TestClean:
         proj_b_dir.mkdir()
         proj_b = resolve_project(std, config, project_dir=str(proj_b_dir), initialize=True)
 
-        assert proj_a.settings_path.is_dir()
-        assert proj_b.settings_path.is_dir()
+        assert proj_a.metadata_path.is_dir()
+        assert proj_b.metadata_path.is_dir()
 
         args = argparse.Namespace(
             path=None,
@@ -81,8 +81,8 @@ class TestClean:
         )
         rc = run(args)
         assert rc == 0
-        assert not proj_a.settings_path.exists()
-        assert not proj_b.settings_path.exists()
+        assert not proj_a.metadata_path.exists()
+        assert not proj_b.metadata_path.exists()
 
     def test_all_empty_returns_zero(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.clean import run

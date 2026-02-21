@@ -13,11 +13,11 @@ from kanibako.workset import add_project, create_workset
 
 class TestCleanExtended:
     def test_purge_decentralized_project(self, config_file, tmp_home):
-        """Purge removes .kanibako/ for decentralized projects."""
+        """Purge removes kanibako/ for decentralized projects."""
         from kanibako.commands.clean import run
 
         project_dir = tmp_home / "project"
-        kanibako_dir = project_dir / ".kanibako"
+        kanibako_dir = project_dir / "kanibako"
         kanibako_dir.mkdir()
         (kanibako_dir / "data.txt").write_text("session-data")
 
@@ -43,17 +43,17 @@ class TestCleanExtended:
         # Create a decentralized project
         dec_dir = tmp_home / "dec_project"
         dec_dir.mkdir()
-        (dec_dir / ".kanibako").mkdir()
-        (dec_dir / ".kanibako" / "data.txt").write_text("dec-data")
+        (dec_dir / "kanibako").mkdir()
+        (dec_dir / "kanibako" / "data.txt").write_text("dec-data")
 
         args = argparse.Namespace(all_projects=True, force=True)
         rc = run(args)
         assert rc == 0
 
         # Account-centric settings should be gone
-        assert not proj.settings_path.exists()
-        # Decentralized .kanibako/ should still exist (not covered by --all)
-        assert (dec_dir / ".kanibako" / "data.txt").exists()
+        assert not proj.metadata_path.exists()
+        # Decentralized kanibako/ should still exist (not covered by --all)
+        assert (dec_dir / "kanibako" / "data.txt").exists()
 
 
 class TestCleanWorkset:
@@ -75,16 +75,16 @@ class TestCleanWorkset:
         source.mkdir()
         add_project(ws, "purge-proj", source)
         ws_proj = resolve_workset_project(ws, "purge-proj", std, config, initialize=True)
-        (ws_proj.settings_path / "data.txt").write_text("ws-data")
+        (ws_proj.metadata_path / "data.txt").write_text("ws-data")
 
         args = argparse.Namespace(all_projects=True, force=True)
         rc = run(args)
         assert rc == 0
 
         # AC settings should be gone
-        assert not ac_proj.settings_path.exists()
+        assert not ac_proj.metadata_path.exists()
         # Workset settings should be gone
-        assert not (ws.settings_dir / "purge-proj" / "data.txt").exists()
+        assert not (ws.projects_dir / "purge-proj" / "data.txt").exists()
 
     def test_purge_workset_project_single(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.clean import run
@@ -98,7 +98,7 @@ class TestCleanWorkset:
         source.mkdir()
         add_project(ws, "single-purge-proj", source)
         ws_proj = resolve_workset_project(ws, "single-purge-proj", std, config, initialize=True)
-        (ws_proj.settings_path / "data.txt").write_text("purge-data")
+        (ws_proj.metadata_path / "data.txt").write_text("purge-data")
 
         # Use workspace path as path arg
         args = argparse.Namespace(
@@ -107,4 +107,4 @@ class TestCleanWorkset:
         )
         rc = run(args)
         assert rc == 0
-        assert not ws_proj.settings_path.exists()
+        assert not ws_proj.metadata_path.exists()

@@ -257,7 +257,7 @@ class TestWorksetRemove:
         add_project(ws, "rmfproj", src)
 
         # Verify per-project dirs were created.
-        assert (ws.settings_dir / "rmfproj").is_dir()
+        assert (ws.projects_dir / "rmfproj").is_dir()
 
         args = argparse.Namespace(
             workset="rmfws", project="rmfproj",
@@ -265,7 +265,7 @@ class TestWorksetRemove:
         )
         rc = run_remove(args)
         assert rc == 0
-        assert not (ws.settings_dir / "rmfproj").is_dir()
+        assert not (ws.projects_dir / "rmfproj").is_dir()
 
     def test_remove_unknown_error(self, config_file, tmp_home, capsys):
         from kanibako.commands.workset_cmd import run_remove

@@ -219,8 +219,8 @@ class TestRunStatus:
         out = capsys.readouterr().out
         assert "account-centric" in out
         assert "Hash:" in out
-        assert "Settings:" in out
-        assert "Shell:" in out
+        assert "Metadata:" in out
+        assert "Home:" in out
         assert "Lock:" in out
         assert "none" in out
         assert "Container:" in out
@@ -229,7 +229,7 @@ class TestRunStatus:
 
     def test_lock_active(self, initialized_project, capsys):
         """Status shows ACTIVE lock when lock file exists."""
-        lock_file = initialized_project.proj.settings_path / ".kanibako.lock"
+        lock_file = initialized_project.proj.metadata_path / ".kanibako.lock"
         lock_file.write_text("kanibako-test\n")
         args = argparse.Namespace(project=initialized_project.project_dir)
         with patch(
@@ -274,7 +274,7 @@ class TestRunStatus:
 
     def test_shows_project_image_override(self, initialized_project, capsys):
         """Status shows project-specific image when project.toml is set."""
-        project_toml = initialized_project.proj.settings_path / "project.toml"
+        project_toml = initialized_project.proj.metadata_path / "project.toml"
         project_toml.write_text('[container]\nimage = "custom:v2"\n')
         args = argparse.Namespace(project=initialized_project.project_dir)
         with patch(
@@ -288,7 +288,9 @@ class TestRunStatus:
 
     def test_credential_age_displayed(self, initialized_project, capsys):
         """Status shows credential file age when credentials exist."""
-        creds = initialized_project.proj.dot_path / ".credentials.json"
+        creds_dir = initialized_project.proj.home_path / ".claude"
+        creds_dir.mkdir(parents=True, exist_ok=True)
+        creds = creds_dir / ".credentials.json"
         creds.write_text('{"claudeAiOauth": {"token": "test"}}')
         args = argparse.Namespace(project=initialized_project.project_dir)
         with patch(
@@ -304,7 +306,7 @@ class TestRunStatus:
     def test_no_credentials_shows_na(self, initialized_project, capsys):
         """Status shows n/a when no credentials file exists."""
         # Remove credentials if they were copied during init.
-        creds = initialized_project.proj.dot_path / ".credentials.json"
+        creds = initialized_project.proj.home_path / ".claude" / ".credentials.json"
         if creds.exists():
             creds.unlink()
         args = argparse.Namespace(project=initialized_project.project_dir)
@@ -339,4 +341,4 @@ class TestRunStatusDecentralized:
         assert rc == 0
         out = capsys.readouterr().out
         assert "decentralized" in out
-        assert ".kanibako" in out
+        assert "kanibako" in out

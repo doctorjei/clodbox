@@ -77,7 +77,7 @@ def run(args: argparse.Namespace) -> int:
     std = load_std_paths(config)
     proj = resolve_project(std, config, project_dir=args.project, initialize=False)
 
-    project_toml = proj.settings_path / "project.toml"
+    project_toml = proj.metadata_path / "project.toml"
 
     if args.show:
         return _show_config(config_file, project_toml, proj)

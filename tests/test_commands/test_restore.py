@@ -24,7 +24,7 @@ class TestRestore:
         proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
 
         # Add test data
-        (proj.settings_path / "mydata.txt").write_text("important")
+        (proj.metadata_path / "mydata.txt").write_text("important")
 
         archive_path = str(tmp_home / "roundtrip.txz")
         args = argparse.Namespace(
@@ -39,8 +39,8 @@ class TestRestore:
 
         # Clean
         import shutil
-        shutil.rmtree(proj.settings_path)
-        assert not proj.settings_path.exists()
+        shutil.rmtree(proj.metadata_path)
+        assert not proj.metadata_path.exists()
 
         # Restore
         args = argparse.Namespace(
@@ -50,10 +50,10 @@ class TestRestore:
             force=True,
         )
         assert restore_run(args) == 0
-        assert proj.settings_path.is_dir()
-        assert (proj.settings_path / "mydata.txt").read_text() == "important"
+        assert proj.metadata_path.is_dir()
+        assert (proj.metadata_path / "mydata.txt").read_text() == "important"
         # Info file should be cleaned up
-        assert not (proj.settings_path / "kanibako-archive-info.txt").exists()
+        assert not (proj.metadata_path / "kanibako-archive-info.txt").exists()
 
     def test_missing_archive(self, config_file, tmp_home, credentials_dir):
         from kanibako.commands.restore import run
