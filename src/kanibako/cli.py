@@ -20,6 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  -N, --new           start a new conversation (skip default --continue)\n"
             "  -S, --safe          run without --dangerously-skip-permissions\n"
             "  -c, --command CMD   use CMD as the container entrypoint\n"
+            "  -v, --verbose       show debug output (target detection, container cmd)\n"
             "\n"
             "run 'kanibako COMMAND --help' for subcommand-specific options"
         ),
@@ -86,6 +87,13 @@ def main(argv: list[str] | None = None) -> None:
     argcomplete.autocomplete(parser)
 
     effective = list(argv if argv is not None else sys.argv[1:])
+
+    # Extract -v/--verbose before subcommand dispatch.
+    verbose = "-v" in effective or "--verbose" in effective
+    effective = [a for a in effective if a not in ("-v", "--verbose")]
+
+    from kanibako.log import setup_logging
+    setup_logging(verbose=verbose)
 
     # Handle top-level --help and --version before argparse dispatch
     # (kept off the parser so they don't appear in tab-completion).

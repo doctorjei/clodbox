@@ -10,6 +10,7 @@ from pathlib import Path
 from kanibako.config import load_config, load_merged_config
 from kanibako.container import ContainerRuntime
 from kanibako.errors import ConfigError, ContainerError
+from kanibako.log import get_logger
 from kanibako.paths import (
     ProjectMode,
     _upgrade_shell,
@@ -211,23 +212,40 @@ def _run_container(
     check_image_freshness(runtime, image, std.cache_path)
 
     # Resolve target (agent plugin) and detect installation
+    logger = get_logger("start")
     is_agent_mode = entrypoint is None
     target = None
     install = None
     if is_agent_mode:
         try:
             target = resolve_target(merged.target_name or None)
+            logger.debug("Resolved target: %s", target.display_name)
             install = target.detect()
             if install:
                 print(
                     f"Using host {target.display_name}: {install.binary}",
                     file=sys.stderr,
                 )
+            else:
+                print(
+                    f"Warning: {target.display_name} binary not found on host. "
+                    f"Launching without agent.",
+                    file=sys.stderr,
+                )
+                logger.debug("target.detect() returned None for %s", target.name)
         except KeyError:
-            pass  # No target found — run without agent
+            print(
+                "Warning: No agent target found. Launching without agent.",
+                file=sys.stderr,
+            )
+            logger.debug("resolve_target() raised KeyError", exc_info=True)
 
     # Deterministic container name for stop/cleanup
     container_name = f"kanibako-{short_hash(proj.project_hash)}"
+
+    logger.debug("Project: %s (mode=%s)", proj.project_path, proj.mode)
+    logger.debug("Image: %s", image)
+    logger.debug("Container: %s", container_name)
 
     # Concurrency lock (known issue #3)
     lock_file = proj.metadata_path / ".kanibako.lock"

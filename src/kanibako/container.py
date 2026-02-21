@@ -10,6 +10,9 @@ from pathlib import Path
 
 from kanibako.containerfiles import get_containerfile
 from kanibako.errors import ContainerError
+from kanibako.log import get_logger
+
+logger = get_logger("container")
 
 
 # Map image name patterns to Containerfile suffixes.
@@ -180,6 +183,8 @@ class ContainerRuntime:
         cmd.append(image)
         if cli_args:
             cmd.extend(cli_args)
+
+        logger.debug("Container command: %s", cmd)
 
         result = subprocess.run(cmd)
         return result.returncode

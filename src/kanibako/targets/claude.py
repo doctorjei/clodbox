@@ -5,7 +5,10 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from kanibako.log import get_logger
 from kanibako.targets.base import AgentInstall, Mount, Target
+
+logger = get_logger("targets.claude")
 
 
 class ClaudeTarget(Target):
@@ -26,6 +29,7 @@ class ClaudeTarget(Target):
         the directory tree to locate the ``claude/`` installation root.
         """
         claude_path = shutil.which("claude")
+        logger.debug("shutil.which('claude') = %s", claude_path)
         if not claude_path:
             return None
 
@@ -34,7 +38,10 @@ class ClaudeTarget(Target):
         try:
             resolved = binary.resolve()
         except OSError:
+            logger.debug("Failed to resolve symlink: %s", binary)
             return None
+
+        logger.debug("Resolved binary: %s", resolved)
 
         # Walk up from the resolved binary to find the 'claude' directory.
         install_dir = resolved.parent
@@ -46,6 +53,7 @@ class ClaudeTarget(Target):
         if install_dir.name != "claude":
             install_dir = resolved.parent
 
+        logger.debug("Install dir: %s", install_dir)
         return AgentInstall(name="claude", binary=binary, install_dir=install_dir)
 
     def binary_mounts(self, install: AgentInstall) -> list[Mount]:

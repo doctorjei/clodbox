@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from kanibako.cli import build_parser
@@ -343,3 +345,42 @@ class TestParser:
         assert args.to_mode == "workset"
         assert args.workset == "myws"
         assert args.project_name == "proj"
+
+
+class TestVerboseFlag:
+    def test_verbose_short_sets_debug(self):
+        from kanibako.cli import main
+
+        with pytest.raises(SystemExit):
+            main(["-v", "--version"])
+        logger = logging.getLogger("kanibako")
+        assert logger.level == logging.DEBUG
+
+    def test_verbose_long_sets_debug(self):
+        from kanibako.cli import main
+
+        with pytest.raises(SystemExit):
+            main(["--verbose", "--version"])
+        logger = logging.getLogger("kanibako")
+        assert logger.level == logging.DEBUG
+
+    def test_no_verbose_sets_warning(self):
+        from kanibako.cli import main
+
+        with pytest.raises(SystemExit):
+            main(["--version"])
+        logger = logging.getLogger("kanibako")
+        assert logger.level == logging.WARNING
+
+    def test_verbose_stripped_from_args(self):
+        """Verbose flag should not reach subcommand parsing."""
+        from kanibako.cli import main
+
+        # -v before --help should not error out
+        with pytest.raises(SystemExit) as exc_info:
+            main(["-v", "--help"])
+        assert exc_info.value.code == 0
+
+    def test_epilog_mentions_verbose(self):
+        parser = build_parser()
+        assert "-v, --verbose" in parser.epilog

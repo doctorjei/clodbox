@@ -102,6 +102,7 @@ Subsequent runs reuse the existing state.
 | `-N, --new` | Start a new conversation (skip `--continue`) |
 | `-S, --safe` | Run without `--dangerously-skip-permissions` |
 | `-c, --command CMD` | Use CMD as the container entrypoint |
+| `-v, --verbose` | Show debug output (target detection, container command) |
 
 ## Project Modes
 
@@ -331,7 +332,7 @@ kanibako config --clear             # remove all project overrides
 pip install -e ".[dev]"
 
 # Run tests
-pytest tests/ -v                    # unit tests (727)
+pytest tests/ -v                    # unit tests (732)
 pytest tests/ -v -m integration     # integration tests (39)
 
 # Lint
@@ -346,7 +347,8 @@ git push && git push --tags
 
 | Module | Role |
 |--------|------|
-| `cli.py` | Argparse tree, main() entry |
+| `cli.py` | Argparse tree, main() entry, `-v` flag |
+| `log.py` | Logging setup (`-v` enables debug output) |
 | `config.py` | TOML config loading, merge logic |
 | `paths.py` | XDG resolution, mode detection, project init |
 | `container.py` | Container runtime (detect, pull, build, run, stop) |
