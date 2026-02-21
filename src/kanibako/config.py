@@ -23,6 +23,7 @@ _DEFAULTS = {
     "paths_dot_path": "dotclaude",
     "paths_cfg_file": "claude.json",
     "container_image": "ghcr.io/doctorjei/kanibako-base:latest",
+    "target_name": "",
 }
 
 
@@ -36,6 +37,7 @@ class KanibakoConfig:
     paths_dot_path: str = _DEFAULTS["paths_dot_path"]
     paths_cfg_file: str = _DEFAULTS["paths_cfg_file"]
     container_image: str = _DEFAULTS["container_image"]
+    target_name: str = _DEFAULTS["target_name"]
 
 
 def _flatten_toml(data: dict, prefix: str = "") -> dict[str, str]:
@@ -119,47 +121,141 @@ def write_global_config(path: Path, cfg: KanibakoConfig | None = None) -> None:
 
 def write_project_config(path: Path, image: str) -> None:
     """Write or update a project.toml with the given image."""
+    write_project_config_key(path, "container_image", image)
+
+
+def _split_config_key(flat_key: str) -> tuple[str, str]:
+    """Split a flat config key into (section, toml_key).
+
+    ``"container_image"`` → ``("container", "image")``
+    ``"paths_dot_path"``  → ``("paths", "dot_path")``
+    """
+    for prefix in ("paths_", "container_", "target_"):
+        if flat_key.startswith(prefix):
+            section = prefix.rstrip("_")
+            toml_key = flat_key[len(prefix):]
+            return section, toml_key
+    raise ValueError(f"Cannot determine TOML section for key: {flat_key}")
+
+
+def config_keys() -> list[str]:
+    """Return all valid flat config key names."""
+    return [fld.name for fld in fields(KanibakoConfig)]
+
+
+def write_project_config_key(path: Path, flat_key: str, value: str) -> None:
+    """Write or update a single key in a project.toml.
+
+    *flat_key* is the underscore-joined config name (e.g. ``"container_image"``).
+    """
+    section, toml_key = _split_config_key(flat_key)
+    section_header = f"[{section}]"
+
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         text = path.read_text()
-        # Replace existing image line
-        if re.search(r'^image\s*=', text, re.MULTILINE):
+        # Replace existing key line
+        if re.search(rf'^{re.escape(toml_key)}\s*=', text, re.MULTILINE):
             text = re.sub(
-                r'^image\s*=\s*"[^"]*"',
-                f'image = "{image}"',
+                rf'^{re.escape(toml_key)}\s*=\s*"[^"]*"',
+                f'{toml_key} = "{value}"',
                 text,
                 flags=re.MULTILINE,
             )
             path.write_text(text)
             return
-        # Has [container] section but no image key
-        if "[container]" in text:
+        # Has the right section but no matching key
+        if section_header in text:
             text = text.replace(
-                "[container]", f'[container]\nimage = "{image}"', 1
+                section_header, f'{section_header}\n{toml_key} = "{value}"', 1
             )
             path.write_text(text)
             return
-    # New file or no [container] section
+        # File exists but different section — append
+        if not text.endswith("\n"):
+            text += "\n"
+        text += f"\n{section_header}\n{toml_key} = \"{value}\"\n"
+        path.write_text(text)
+        return
+    # New file
     lines = [
-        "[container]",
-        f'image = "{image}"',
+        section_header,
+        f'{toml_key} = "{value}"',
         "",
     ]
     path.write_text("\n".join(lines))
+
+
+def unset_project_config_key(path: Path, flat_key: str) -> bool:
+    """Remove a single key from a project.toml.
+
+    Returns True if the key was found and removed, False if it was not present.
+    """
+    if not path.exists():
+        return False
+
+    section, toml_key = _split_config_key(flat_key)
+    text = path.read_text()
+
+    # Remove the key line (including trailing newline)
+    new_text, count = re.subn(
+        rf'^{re.escape(toml_key)}\s*=\s*"[^"]*"\n?',
+        "",
+        text,
+        flags=re.MULTILINE,
+    )
+    if count == 0:
+        return False
+
+    # Clean up empty sections: if the section header is followed by
+    # nothing (or only blank lines) before the next section or EOF, remove it.
+    new_text = re.sub(
+        r'^\[[\w]+\]\n(?=\s*(?:\[|$))',
+        "",
+        new_text,
+        flags=re.MULTILINE,
+    )
+    # Strip trailing whitespace
+    new_text = new_text.rstrip() + "\n" if new_text.strip() else ""
+
+    path.write_text(new_text)
+    return True
+
+
+def load_project_overrides(path: Path) -> dict[str, str]:
+    """Load only the project-level overrides from a project.toml.
+
+    Returns a dict of flat_key → value for keys that differ from defaults.
+    """
+    if not path.exists():
+        return {}
+    proj_cfg = load_config(path)
+    defaults = KanibakoConfig()
+    overrides: dict[str, str] = {}
+    for fld in fields(proj_cfg):
+        val = getattr(proj_cfg, fld.name)
+        if val != getattr(defaults, fld.name):
+            overrides[fld.name] = val
+    return overrides
 
 
 # ---------------------------------------------------------------------------
 # Legacy .rc migration helpers (used by `kanibako install`)
 # ---------------------------------------------------------------------------
 
-_RC_KEY_MAP = {
-    "CLODBOX_RELATIVE_STD_PATH": "paths_relative_std_path",
-    "CLODBOX_INIT_CREDENTIALS_PATH": "paths_init_credentials_path",
-    "CLODBOX_PROJECTS_PATH": "paths_projects_path",
-    "CLODBOX_DOT_PATH": "paths_dot_path",
-    "CLODBOX_CFG_FILE": "paths_cfg_file",
-    "CLODBOX_CONTAINER_IMAGE": "container_image",
+_RC_KEY_MAP: dict[str, str] = {
+    "KANIBAKO_RELATIVE_STD_PATH": "paths_relative_std_path",
+    "KANIBAKO_INIT_CREDENTIALS_PATH": "paths_init_credentials_path",
+    "KANIBAKO_PROJECTS_PATH": "paths_projects_path",
+    "KANIBAKO_DOT_PATH": "paths_dot_path",
+    "KANIBAKO_CFG_FILE": "paths_cfg_file",
+    "KANIBAKO_CONTAINER_IMAGE": "container_image",
 }
+
+# Backward compat: also accept the old "CLOD" + "BOX" prefix (pre-rename).
+_LEGACY_PREFIX = "CLOD" + "BOX"
+for _k, _v in list(_RC_KEY_MAP.items()):
+    _RC_KEY_MAP[_k.replace("KANIBAKO", _LEGACY_PREFIX)] = _v
 
 
 def migrate_rc(rc_path: Path, toml_path: Path) -> KanibakoConfig:

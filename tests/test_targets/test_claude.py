@@ -1,0 +1,268 @@
+"""Tests for ClaudeTarget."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+from kanibako.targets.base import AgentInstall
+from kanibako.targets.claude import ClaudeTarget
+
+
+class TestClaudeTargetProperties:
+    def test_name(self):
+        t = ClaudeTarget()
+        assert t.name == "claude"
+
+    def test_display_name(self):
+        t = ClaudeTarget()
+        assert t.display_name == "Claude Code"
+
+
+class TestDetect:
+    def test_found(self, tmp_path):
+        """Detect returns AgentInstall when claude binary exists."""
+        # Create a fake claude installation.
+        install_dir = tmp_path / "claude"
+        install_dir.mkdir()
+        versions = install_dir / "versions" / "1.0"
+        versions.mkdir(parents=True)
+        binary = versions / "claude-bin"
+        binary.write_text("#!/bin/sh\n")
+        binary.chmod(0o755)
+
+        symlink = tmp_path / "claude-link"
+        symlink.symlink_to(binary)
+
+        t = ClaudeTarget()
+        with patch("shutil.which", return_value=str(symlink)):
+            result = t.detect()
+
+        assert result is not None
+        assert isinstance(result, AgentInstall)
+        assert result.name == "claude"
+        assert result.binary == symlink
+        assert result.install_dir == install_dir
+
+    def test_not_found(self):
+        """Detect returns None when claude is not installed."""
+        t = ClaudeTarget()
+        with patch("shutil.which", return_value=None):
+            result = t.detect()
+        assert result is None
+
+    def test_fallback_when_no_claude_dir(self, tmp_path):
+        """When no 'claude' directory is found walking up, falls back to parent."""
+        binary = tmp_path / "some" / "path" / "binary"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("#!/bin/sh\n")
+        binary.chmod(0o755)
+
+        t = ClaudeTarget()
+        with patch("shutil.which", return_value=str(binary)):
+            result = t.detect()
+
+        assert result is not None
+        # Falls back to binary's parent (resolved)
+        assert result.install_dir == binary.resolve().parent
+
+
+class TestBinaryMounts:
+    def test_mounts(self):
+        t = ClaudeTarget()
+        install = AgentInstall(
+            name="claude",
+            binary=Path("/usr/local/bin/claude"),
+            install_dir=Path("/usr/local/share/claude"),
+        )
+        mounts = t.binary_mounts(install)
+        assert len(mounts) == 2
+        assert mounts[0].source == Path("/usr/local/share/claude")
+        assert mounts[0].destination == "/home/agent/.local/share/claude"
+        assert mounts[0].options == "ro"
+        assert mounts[1].source == Path("/usr/local/bin/claude")
+        assert mounts[1].destination == "/home/agent/.local/bin/claude"
+        assert mounts[1].options == "ro"
+
+
+class TestInitHome:
+    def test_creates_claude_dir(self, tmp_path, monkeypatch):
+        """init_home creates .claude/ directory in home."""
+        home = tmp_path / "home"
+        home.mkdir()
+
+        # No host files to copy.
+        fake_home = tmp_path / "fake_user_home"
+        fake_home.mkdir()
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+        t = ClaudeTarget()
+        t.init_home(home)
+
+        assert (home / ".claude").is_dir()
+        assert (home / ".claude.json").exists()
+
+    def test_copies_host_credentials(self, tmp_path, monkeypatch):
+        """init_home copies .credentials.json from host."""
+        home = tmp_path / "home"
+        home.mkdir()
+
+        fake_home = tmp_path / "fake_user_home"
+        (fake_home / ".claude").mkdir(parents=True)
+        creds = {"claudeAiOauth": {"token": "test"}}
+        (fake_home / ".claude" / ".credentials.json").write_text(json.dumps(creds))
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+        t = ClaudeTarget()
+        t.init_home(home)
+
+        copied = home / ".claude" / ".credentials.json"
+        assert copied.is_file()
+        assert json.loads(copied.read_text())["claudeAiOauth"]["token"] == "test"
+
+    def test_copies_filtered_settings(self, tmp_path, monkeypatch):
+        """init_home copies filtered .claude.json from host."""
+        home = tmp_path / "home"
+        home.mkdir()
+
+        fake_home = tmp_path / "fake_user_home"
+        fake_home.mkdir()
+        settings = {
+            "oauthAccount": "user@example.com",
+            "hasCompletedOnboarding": True,
+            "installMethod": "npm",
+            "dangerousKey": "should-be-removed",
+        }
+        (fake_home / ".claude.json").write_text(json.dumps(settings))
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+        t = ClaudeTarget()
+        t.init_home(home)
+
+        result = json.loads((home / ".claude.json").read_text())
+        assert result["oauthAccount"] == "user@example.com"
+        assert result["hasCompletedOnboarding"] is True
+        assert "dangerousKey" not in result
+
+
+class TestBuildCliArgs:
+    def test_default(self):
+        t = ClaudeTarget()
+        args = t.build_cli_args(
+            safe_mode=False, resume_mode=False,
+            new_session=False, is_new_project=False,
+            extra_args=[],
+        )
+        assert "--dangerously-skip-permissions" in args
+        assert "--continue" in args
+
+    def test_safe_mode(self):
+        t = ClaudeTarget()
+        args = t.build_cli_args(
+            safe_mode=True, resume_mode=False,
+            new_session=False, is_new_project=False,
+            extra_args=[],
+        )
+        assert "--dangerously-skip-permissions" not in args
+        assert "--continue" in args
+
+    def test_resume_mode(self):
+        t = ClaudeTarget()
+        args = t.build_cli_args(
+            safe_mode=False, resume_mode=True,
+            new_session=False, is_new_project=False,
+            extra_args=[],
+        )
+        assert "--resume" in args
+        assert "--continue" not in args
+
+    def test_new_session(self):
+        t = ClaudeTarget()
+        args = t.build_cli_args(
+            safe_mode=False, resume_mode=False,
+            new_session=True, is_new_project=False,
+            extra_args=[],
+        )
+        assert "--continue" not in args
+
+    def test_new_project(self):
+        t = ClaudeTarget()
+        args = t.build_cli_args(
+            safe_mode=False, resume_mode=False,
+            new_session=False, is_new_project=True,
+            extra_args=[],
+        )
+        assert "--continue" not in args
+
+    def test_extra_args_resume_flag(self):
+        t = ClaudeTarget()
+        args = t.build_cli_args(
+            safe_mode=False, resume_mode=False,
+            new_session=False, is_new_project=False,
+            extra_args=["--resume"],
+        )
+        assert "--continue" not in args
+        assert "--resume" in args
+
+    def test_extra_args_passed_through(self):
+        t = ClaudeTarget()
+        args = t.build_cli_args(
+            safe_mode=False, resume_mode=False,
+            new_session=False, is_new_project=False,
+            extra_args=["--foo", "bar"],
+        )
+        assert "--foo" in args
+        assert "bar" in args
+
+    def test_extra_args_r_flag(self):
+        t = ClaudeTarget()
+        args = t.build_cli_args(
+            safe_mode=False, resume_mode=False,
+            new_session=False, is_new_project=False,
+            extra_args=["-r"],
+        )
+        assert "--continue" not in args
+
+
+class TestRefreshCredentials:
+    def test_calls_credential_functions(self, tmp_path, monkeypatch):
+        """refresh_credentials delegates to credential module functions."""
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+
+        t = ClaudeTarget()
+        with (
+            patch("kanibako.targets.claude.ClaudeTarget._central_creds_path",
+                  return_value=tmp_path / "central" / ".credentials.json"),
+            patch("kanibako.credentials.refresh_host_to_central") as m_h2c,
+            patch("kanibako.credentials.refresh_central_to_project") as m_c2p,
+        ):
+            t.refresh_credentials(home)
+
+        m_h2c.assert_called_once()
+        m_c2p.assert_called_once()
+        # Verify project creds path is home/.claude/.credentials.json
+        project_creds = m_c2p.call_args[0][1]
+        assert project_creds == home / ".claude" / ".credentials.json"
+
+
+class TestWritebackCredentials:
+    def test_calls_writeback(self, tmp_path):
+        """writeback_credentials delegates to credential module function."""
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True)
+
+        t = ClaudeTarget()
+        with (
+            patch("kanibako.targets.claude.ClaudeTarget._central_creds_path",
+                  return_value=tmp_path / "central" / ".credentials.json"),
+            patch("kanibako.credentials.writeback_project_to_central_and_host") as m_wb,
+        ):
+            t.writeback_credentials(home)
+
+        m_wb.assert_called_once()
+        project_creds = m_wb.call_args[0][0]
+        assert project_creds == home / ".claude" / ".credentials.json"

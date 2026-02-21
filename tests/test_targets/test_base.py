@@ -1,0 +1,95 @@
+"""Tests for target base classes: Mount, AgentInstall, Target ABC."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from kanibako.targets.base import AgentInstall, Mount, Target
+
+
+class TestMount:
+    def test_to_volume_arg_simple(self):
+        m = Mount(source=Path("/host/dir"), destination="/container/dir")
+        assert m.to_volume_arg() == "/host/dir:/container/dir"
+
+    def test_to_volume_arg_with_options(self):
+        m = Mount(source=Path("/host/dir"), destination="/container/dir", options="ro")
+        assert m.to_volume_arg() == "/host/dir:/container/dir:ro"
+
+    def test_to_volume_arg_complex_options(self):
+        m = Mount(source=Path("/a"), destination="/b", options="Z,U")
+        assert m.to_volume_arg() == "/a:/b:Z,U"
+
+    def test_frozen(self):
+        m = Mount(source=Path("/a"), destination="/b")
+        with pytest.raises(AttributeError):
+            m.source = Path("/c")  # type: ignore[misc]
+
+
+class TestAgentInstall:
+    def test_fields(self):
+        ai = AgentInstall(
+            name="claude",
+            binary=Path("/usr/bin/claude"),
+            install_dir=Path("/opt/claude"),
+        )
+        assert ai.name == "claude"
+        assert ai.binary == Path("/usr/bin/claude")
+        assert ai.install_dir == Path("/opt/claude")
+
+
+class TestTargetABC:
+    def test_cannot_instantiate(self):
+        with pytest.raises(TypeError):
+            Target()  # type: ignore[abstract]
+
+    def test_concrete_subclass(self):
+        class DummyTarget(Target):
+            @property
+            def name(self) -> str:
+                return "dummy"
+
+            @property
+            def display_name(self) -> str:
+                return "Dummy Agent"
+
+            def detect(self):
+                return None
+
+            def binary_mounts(self, install):
+                return []
+
+            def init_home(self, home):
+                pass
+
+            def refresh_credentials(self, home):
+                pass
+
+            def writeback_credentials(self, home):
+                pass
+
+            def build_cli_args(self, **kwargs):
+                return []
+
+        t = DummyTarget()
+        assert t.name == "dummy"
+        assert t.display_name == "Dummy Agent"
+        assert t.detect() is None
+        assert t.binary_mounts(None) == []
+
+    def test_abstract_methods_enforced(self):
+        """Target subclass missing abstract methods cannot be instantiated."""
+
+        class IncompleteTarget(Target):
+            @property
+            def name(self):
+                return "x"
+
+            @property
+            def display_name(self):
+                return "X"
+
+        with pytest.raises(TypeError):
+            IncompleteTarget()  # type: ignore[abstract]
