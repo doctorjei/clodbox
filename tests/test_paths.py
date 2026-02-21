@@ -7,9 +7,10 @@ from pathlib import Path
 import pytest
 
 from kanibako.config import KanibakoConfig, load_config
-from kanibako.errors import ConfigError, ProjectError
+from kanibako.errors import ConfigError, ProjectError, WorksetError
 from kanibako.paths import (
     ProjectMode,
+    _find_workset_for_path,
     detect_project_mode,
     load_std_paths,
     resolve_any_project,
@@ -203,3 +204,80 @@ class TestResolveAnyProject:
         # cwd is tmp_home/project (set by tmp_home fixture)
         assert proj.project_path == (tmp_home / "project").resolve()
         assert proj.mode is ProjectMode.account_centric
+
+    def test_resolve_any_project_workset_mode(self, config_file, tmp_home):
+        """Dispatches to resolve_workset_project when inside a workset workspace."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+
+        from kanibako.workset import add_project, create_workset
+        ws_root = tmp_home / "worksets" / "my-set"
+        ws = create_workset("my-set", ws_root, std)
+        add_project(ws, "myproj", tmp_home / "project")
+
+        proj_dir = ws.workspaces_dir / "myproj"
+        proj = resolve_any_project(std, config, project_dir=str(proj_dir), initialize=False)
+
+        assert proj.mode is ProjectMode.workset
+        assert proj.settings_path == ws.settings_dir / "myproj"
+        assert proj.shell_path == ws.shell_dir / "myproj"
+
+    def test_resolve_any_project_workset_subdirectory(self, config_file, tmp_home):
+        """cwd is workspaces/proj/src/, still resolves correctly."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+
+        from kanibako.workset import add_project, create_workset
+        ws_root = tmp_home / "worksets" / "my-set"
+        ws = create_workset("my-set", ws_root, std)
+        add_project(ws, "myproj", tmp_home / "project")
+
+        subdir = ws.workspaces_dir / "myproj" / "src"
+        subdir.mkdir(parents=True, exist_ok=True)
+        proj = resolve_any_project(std, config, project_dir=str(subdir), initialize=False)
+
+        assert proj.mode is ProjectMode.workset
+        assert proj.project_path == ws.workspaces_dir / "myproj"
+
+    def test_resolve_any_project_workset_initializes(self, config_file, tmp_home, credentials_dir):
+        """initialize=True creates dot_path etc. for workset project."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+
+        from kanibako.workset import add_project, create_workset
+        ws_root = tmp_home / "worksets" / "my-set"
+        ws = create_workset("my-set", ws_root, std)
+        add_project(ws, "myproj", tmp_home / "project")
+
+        proj_dir = ws.workspaces_dir / "myproj"
+        proj = resolve_any_project(std, config, project_dir=str(proj_dir), initialize=True)
+
+        assert proj.mode is ProjectMode.workset
+        assert proj.dot_path.is_dir()
+        assert proj.cfg_file.exists()
+
+
+class TestFindWorksetForPath:
+    def test_find_workset_for_path_success(self, config_file, tmp_home):
+        """Correct workset + name returned for a workspace path."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+
+        from kanibako.workset import add_project, create_workset
+        ws_root = tmp_home / "worksets" / "my-set"
+        ws = create_workset("my-set", ws_root, std)
+        add_project(ws, "myproj", tmp_home / "project")
+
+        proj_dir = (ws.workspaces_dir / "myproj").resolve()
+        found_ws, found_name = _find_workset_for_path(proj_dir, std)
+
+        assert found_ws.name == "my-set"
+        assert found_name == "myproj"
+
+    def test_find_workset_for_path_no_match_raises(self, config_file, tmp_home):
+        """Path not in any workset raises WorksetError."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+
+        with pytest.raises(WorksetError, match="No workset found"):
+            _find_workset_for_path(tmp_home / "random" / "dir", std)

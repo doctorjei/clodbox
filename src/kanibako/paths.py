@@ -416,6 +416,28 @@ def iter_projects(std: StandardPaths, config: KanibakoConfig) -> list[tuple[Path
     return results
 
 
+def _find_workset_for_path(project_dir: Path, std: StandardPaths) -> tuple[Workset, str]:
+    """Return ``(Workset, project_name)`` for a path inside a workset workspace.
+
+    *project_dir* may be the workspace root or a subdirectory within it.
+    Raises ``WorksetError`` if *project_dir* does not belong to any
+    registered workset.
+    """
+    from kanibako.workset import list_worksets, load_workset
+
+    registry = list_worksets(std)
+    for _name, root in registry.items():
+        ws_workspaces = root / "workspaces"
+        try:
+            rel = project_dir.relative_to(ws_workspaces)
+        except ValueError:
+            continue
+        project_name = rel.parts[0]
+        ws = load_workset(root)
+        return ws, project_name
+    raise WorksetError(f"No workset found for path: {project_dir}")
+
+
 def resolve_any_project(
     std: StandardPaths,
     config: KanibakoConfig,
@@ -427,6 +449,9 @@ def resolve_any_project(
     raw = project_dir or os.getcwd()
     raw_dir = Path(raw).resolve()
     mode = detect_project_mode(raw_dir, std, config)
+    if mode == ProjectMode.workset:
+        ws, proj_name = _find_workset_for_path(raw_dir, std)
+        return resolve_workset_project(ws, proj_name, std, config, initialize=initialize)
     if mode == ProjectMode.decentralized:
         return resolve_decentralized_project(std, config, project_dir, initialize=initialize)
     return resolve_project(std, config, project_dir=project_dir, initialize=initialize)

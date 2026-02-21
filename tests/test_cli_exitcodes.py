@@ -334,3 +334,188 @@ class TestDecentralizedLaunch:
 
         captured = capsys.readouterr()
         assert "orphaned" not in captured.err
+
+
+class TestWorksetLaunch:
+    """Tests for workset project detection and launch (Phase 7.5)."""
+
+    def _make_workset_proj(self, ws_root, project_name):
+        """Build a MagicMock ProjectPaths for workset mode."""
+        proj = MagicMock()
+        proj.is_new = False
+        proj.mode = ProjectMode.workset
+        proj.project_path = ws_root / "workspaces" / project_name
+        proj.project_hash = "ws123abc"
+        proj.settings_path = ws_root / "settings" / project_name
+        proj.dot_path = ws_root / "settings" / project_name / "dotclaude"
+        proj.cfg_file = ws_root / "settings" / project_name / "claude.json"
+        proj.shell_path = ws_root / "shell" / project_name
+        proj.vault_ro_path = ws_root / "vault" / project_name / "share-ro"
+        proj.vault_rw_path = ws_root / "vault" / project_name / "share-rw"
+        return proj
+
+    def test_start_detects_workset_project(self, start_mocks, tmp_path):
+        """start from inside a workset workspace returns rc=0."""
+        from kanibako.commands.start import _run_container
+
+        ws_root = tmp_path / "my-workset"
+        ws_root.mkdir()
+        workspace = ws_root / "workspaces" / "myproj"
+        workspace.mkdir(parents=True)
+
+        with start_mocks() as m:
+            proj = self._make_workset_proj(ws_root, "myproj")
+            m.resolve_any_project.return_value = proj
+
+            rc = _run_container(
+                project_dir=str(workspace), entrypoint=None, image_override=None,
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+
+        assert rc == 0
+        m.resolve_any_project.assert_called_once()
+
+    def test_start_workset_creates_lock(self, start_mocks, tmp_path):
+        """settings/{name}/.kanibako.lock is used during run."""
+        from kanibako.commands.start import _run_container
+
+        ws_root = tmp_path / "my-workset"
+        ws_root.mkdir()
+        workspace = ws_root / "workspaces" / "myproj"
+        workspace.mkdir(parents=True)
+
+        with start_mocks() as m:
+            proj = self._make_workset_proj(ws_root, "myproj")
+            m.resolve_any_project.return_value = proj
+
+            rc = _run_container(
+                project_dir=str(workspace), entrypoint=None, image_override=None,
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+
+        assert rc == 0
+        m.fcntl.flock.assert_called()
+
+    def test_start_workset_passes_correct_paths(self, start_mocks, tmp_path):
+        """runtime.run() receives name-based workset paths (not hash-based)."""
+        from kanibako.commands.start import _run_container
+
+        ws_root = tmp_path / "my-workset"
+        ws_root.mkdir()
+        workspace = ws_root / "workspaces" / "myproj"
+        workspace.mkdir(parents=True)
+
+        with start_mocks() as m:
+            proj = self._make_workset_proj(ws_root, "myproj")
+            m.resolve_any_project.return_value = proj
+
+            _run_container(
+                project_dir=str(workspace), entrypoint=None, image_override=None,
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+
+        call_kwargs = m.runtime.run.call_args.kwargs
+        assert call_kwargs["settings_path"] == ws_root / "settings" / "myproj"
+        assert call_kwargs["dot_path"] == ws_root / "settings" / "myproj" / "dotclaude"
+        assert call_kwargs["shell_path"] == ws_root / "shell" / "myproj"
+        assert call_kwargs["project_path"] == ws_root / "workspaces" / "myproj"
+
+    def test_start_workset_credential_flow(self, start_mocks, tmp_path):
+        """Credential refresh uses workset settings/{name}/dotclaude/.credentials.json."""
+        from kanibako.commands.start import _run_container
+
+        ws_root = tmp_path / "my-workset"
+        ws_root.mkdir()
+        workspace = ws_root / "workspaces" / "myproj"
+        workspace.mkdir(parents=True)
+
+        with start_mocks() as m:
+            proj = self._make_workset_proj(ws_root, "myproj")
+            m.resolve_any_project.return_value = proj
+
+            _run_container(
+                project_dir=str(workspace), entrypoint=None, image_override=None,
+                new_session=False, safe_mode=False, resume_mode=False,
+                extra_args=[],
+            )
+
+        # refresh_central_to_project called with project creds path
+        c2p_args = m.refresh_central_to_project.call_args
+        project_creds = c2p_args[0][1]
+        assert project_creds == ws_root / "settings" / "myproj" / "dotclaude" / ".credentials.json"
+
+        # writeback called with same project creds path
+        wb_args = m.writeback.call_args
+        assert wb_args[0][0] == ws_root / "settings" / "myproj" / "dotclaude" / ".credentials.json"
+
+    def test_shell_works_with_workset(self, start_mocks, tmp_path):
+        """shell auto-detects workset mode via resolve_any_project."""
+        from kanibako.commands.start import run_shell
+
+        import argparse
+        ws_root = tmp_path / "my-workset"
+        ws_root.mkdir()
+        workspace = ws_root / "workspaces" / "myproj"
+        workspace.mkdir(parents=True)
+
+        args = argparse.Namespace(project=str(workspace), entrypoint=None)
+
+        with start_mocks() as m:
+            proj = self._make_workset_proj(ws_root, "myproj")
+            m.resolve_any_project.return_value = proj
+
+            rc = run_shell(args)
+
+        assert rc == 0
+        m.resolve_any_project.assert_called_once()
+
+    def test_resume_works_with_workset(self, start_mocks, tmp_path):
+        """resume auto-detects workset mode via resolve_any_project."""
+        from kanibako.commands.start import run_resume
+
+        import argparse
+        ws_root = tmp_path / "my-workset"
+        ws_root.mkdir()
+        workspace = ws_root / "workspaces" / "myproj"
+        workspace.mkdir(parents=True)
+
+        args = argparse.Namespace(project=str(workspace), safe=False)
+
+        with start_mocks() as m:
+            proj = self._make_workset_proj(ws_root, "myproj")
+            m.resolve_any_project.return_value = proj
+
+            rc = run_resume(args)
+
+        assert rc == 0
+        m.resolve_any_project.assert_called_once()
+
+    def test_start_workset_no_orphan_hint(self, start_mocks, tmp_path, capsys):
+        """No orphan hint printed for workset projects."""
+        from kanibako.commands.start import _run_container
+
+        ws_root = tmp_path / "my-workset"
+        ws_root.mkdir()
+        workspace = ws_root / "workspaces" / "myproj"
+        workspace.mkdir(parents=True)
+
+        with start_mocks() as m:
+            proj = self._make_workset_proj(ws_root, "myproj")
+            proj.is_new = True  # new project, but workset
+            m.resolve_any_project.return_value = proj
+
+            with patch("kanibako.paths.iter_projects") as m_iter:
+                orphan_path = MagicMock()
+                orphan_path.is_dir.return_value = False
+                m_iter.return_value = [(MagicMock(), orphan_path)]
+                _run_container(
+                    project_dir=str(workspace), entrypoint=None, image_override=None,
+                    new_session=False, safe_mode=False, resume_mode=False,
+                    extra_args=[],
+                )
+
+        captured = capsys.readouterr()
+        assert "orphaned" not in captured.err
