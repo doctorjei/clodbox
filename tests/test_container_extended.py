@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from kanibako.container import ContainerRuntime, ClaudeInstall
+from kanibako.container import ContainerRuntime
 from kanibako.errors import ContainerError
 from kanibako.targets.base import Mount
 
