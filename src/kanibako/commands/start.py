@@ -15,7 +15,14 @@ from kanibako.credentials import (
     writeback_project_to_central_and_host,
 )
 from kanibako.errors import ConfigError, ContainerError
-from kanibako.paths import _xdg, load_std_paths, resolve_project
+from kanibako.paths import (
+    ProjectMode,
+    _xdg,
+    detect_project_mode,
+    load_std_paths,
+    resolve_decentralized_project,
+    resolve_project,
+)
 from kanibako.utils import short_hash
 
 
@@ -161,10 +168,16 @@ def _run_container(
             print("Run 'kanibako setup' when you're ready.")
             return 1
 
-    proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
+    raw_dir = Path(project_dir).resolve() if project_dir else Path.cwd().resolve()
+    mode = detect_project_mode(raw_dir, std, config)
+
+    if mode == ProjectMode.decentralized:
+        proj = resolve_decentralized_project(std, config, project_dir, initialize=True)
+    else:
+        proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
 
     # Hint about orphaned project data when initializing a new project
-    if proj.is_new:
+    if proj.is_new and proj.mode == ProjectMode.account_centric:
         from kanibako.paths import iter_projects
         for _settings, _ppath in iter_projects(std, config):
             if _ppath is not None and not _ppath.is_dir():

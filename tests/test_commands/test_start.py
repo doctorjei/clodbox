@@ -13,13 +13,16 @@ class TestStartArgs:
     def test_claude_mode_adds_skip_permissions(self):
         """Default (no entrypoint) should inject --dangerously-skip-permissions."""
         from kanibako.commands.start import _run_container
+        from kanibako.paths import ProjectMode
 
         # We can't run a real container, but we can test the arg assembly
         # by mocking the runtime and checking what gets passed.
         with (
             patch("kanibako.commands.start.load_config"),
             patch("kanibako.commands.start.load_std_paths"),
+            patch("kanibako.commands.start.detect_project_mode", return_value=ProjectMode.account_centric),
             patch("kanibako.commands.start.resolve_project") as mock_proj,
+            patch("kanibako.commands.start.resolve_decentralized_project"),
             patch("kanibako.commands.start.load_merged_config") as mock_merged,
             patch("kanibako.commands.start.ContainerRuntime") as MockRT,
             patch("kanibako.commands.start.refresh_host_to_central"),
@@ -30,6 +33,7 @@ class TestStartArgs:
         ):
             proj = MagicMock()
             proj.is_new = False
+            proj.mode = ProjectMode.account_centric
             proj.settings_path = MagicMock()
             proj.settings_path.__truediv__ = MagicMock(return_value=MagicMock())
             proj.dot_path.__truediv__ = MagicMock(return_value=MagicMock())
@@ -60,11 +64,14 @@ class TestStartArgs:
 
     def test_safe_mode_skips_permissions(self):
         from kanibako.commands.start import _run_container
+        from kanibako.paths import ProjectMode
 
         with (
             patch("kanibako.commands.start.load_config"),
             patch("kanibako.commands.start.load_std_paths"),
+            patch("kanibako.commands.start.detect_project_mode", return_value=ProjectMode.account_centric),
             patch("kanibako.commands.start.resolve_project") as mock_proj,
+            patch("kanibako.commands.start.resolve_decentralized_project"),
             patch("kanibako.commands.start.load_merged_config") as mock_merged,
             patch("kanibako.commands.start.ContainerRuntime") as MockRT,
             patch("kanibako.commands.start.refresh_host_to_central"),
@@ -75,6 +82,7 @@ class TestStartArgs:
         ):
             proj = MagicMock()
             proj.is_new = True
+            proj.mode = ProjectMode.account_centric
             proj.settings_path = MagicMock()
             proj.settings_path.__truediv__ = MagicMock(return_value=MagicMock())
             proj.dot_path.__truediv__ = MagicMock(return_value=MagicMock())
