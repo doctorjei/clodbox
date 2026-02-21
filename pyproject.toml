@@ -12,6 +12,9 @@ dependencies = ["argcomplete>=3.0"]
 [project.scripts]
 kanibako = "kanibako.cli:main"
 
+[project.entry-points."kanibako.targets"]
+claude = "kanibako.targets.claude:ClaudeTarget"
+
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "pytest-cov", "mypy", "ruff", "bump2version"]
 
