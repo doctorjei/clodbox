@@ -5,11 +5,20 @@ from __future__ import annotations
 import os
 import shutil
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 
 from kanibako.config import KanibakoConfig, load_config
 from kanibako.errors import ConfigError, ProjectError
 from kanibako.utils import project_hash
+
+
+class ProjectMode(Enum):
+    """How a project's persistent state is organized on disk."""
+
+    account_centric = "account_centric"
+    workset = "workset"
+    decentralized = "decentralized"
 
 
 @dataclass
@@ -40,6 +49,7 @@ class ProjectPaths:
     vault_ro_path: Path      # {project}/vault/share-ro (→ /home/agent/share-ro)
     vault_rw_path: Path      # {project}/vault/share-rw (→ /home/agent/share-rw)
     is_new: bool = field(default=False)
+    mode: ProjectMode = field(default=ProjectMode.account_centric)
 
 
 def _xdg(env_var: str, default_suffix: str) -> Path:
@@ -162,6 +172,7 @@ def resolve_project(
         vault_ro_path=vault_ro_path,
         vault_rw_path=vault_rw_path,
         is_new=is_new,
+        mode=ProjectMode.account_centric,
     )
 
 
@@ -228,6 +239,51 @@ def _init_project(
         gitignore.write_text("share-rw/\n")
 
     print("done.", file=sys.stderr)
+
+
+def detect_project_mode(
+    project_dir: Path,
+    std: StandardPaths,
+    config: KanibakoConfig,
+) -> ProjectMode:
+    """Infer which project mode applies to *project_dir*.
+
+    Detection order:
+    1. Workset — *project_dir* lives inside a registered workset root's
+       ``workspaces/`` directory.
+    2. Account-centric — ``settings/{hash}/`` already exists under
+       *std.data_path*.
+    3. Decentralized — a ``.kanibako`` **directory** exists inside
+       *project_dir*.
+    4. Default — ``account_centric`` (new project).
+    """
+    # 1. Workset check: is project_dir inside a registered workset's
+    #    workspaces/ directory?
+    worksets_toml = std.data_path / "worksets.toml"
+    if worksets_toml.is_file():
+        import tomllib as _tomllib
+        with open(worksets_toml, "rb") as _f:
+            _data = _tomllib.load(_f)
+        for _root_str in _data.get("worksets", {}).values():
+            _ws_workspaces = Path(_root_str) / "workspaces"
+            try:
+                project_dir.relative_to(_ws_workspaces)
+                return ProjectMode.workset
+            except ValueError:
+                continue
+
+    # 2. Account-centric: settings/{hash}/ already exists
+    phash = project_hash(str(project_dir))
+    settings_path = std.data_path / config.paths_projects_path / phash
+    if settings_path.is_dir():
+        return ProjectMode.account_centric
+
+    # 3. Decentralized: .kanibako directory inside project
+    if (project_dir / ".kanibako").is_dir():
+        return ProjectMode.decentralized
+
+    # 4. Default for new projects
+    return ProjectMode.account_centric
 
 
 def iter_projects(std: StandardPaths, config: KanibakoConfig) -> list[tuple[Path, Path | None]]:

@@ -29,5 +29,9 @@ class CredentialError(KanibakoError):
     """Credential copy or merge failed."""
 
 
+class WorksetError(KanibakoError):
+    """Workset creation, loading, or manipulation failed."""
+
+
 class UserCancelled(KanibakoError):
     """User cancelled an interactive prompt."""

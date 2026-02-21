@@ -8,7 +8,7 @@ import pytest
 
 from kanibako.config import KanibakoConfig, load_config
 from kanibako.errors import ConfigError, ProjectError
-from kanibako.paths import load_std_paths, resolve_project
+from kanibako.paths import ProjectMode, detect_project_mode, load_std_paths, resolve_project
 from kanibako.utils import project_hash
 
 
@@ -69,3 +69,96 @@ class TestResolveProject:
 
         assert not proj.settings_path.exists()
         assert not proj.is_new
+
+    def test_mode_is_account_centric(self, config_file, tmp_home, credentials_dir):
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = str(tmp_home / "project")
+        proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
+
+        assert proj.mode is ProjectMode.account_centric
+
+
+class TestDetectProjectMode:
+    def test_account_centric_when_settings_exist(self, config_file, tmp_home, credentials_dir):
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = tmp_home / "project"
+        # Initialize to create settings/{hash}/
+        resolve_project(std, config, project_dir=str(project_dir), initialize=True)
+
+        mode = detect_project_mode(project_dir.resolve(), std, config)
+        assert mode is ProjectMode.account_centric
+
+    def test_decentralized_when_dot_kanibako_dir_exists(self, config_file, tmp_home):
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = tmp_home / "project"
+        (project_dir / ".kanibako").mkdir()
+
+        mode = detect_project_mode(project_dir.resolve(), std, config)
+        assert mode is ProjectMode.decentralized
+
+    def test_default_account_centric_for_new_project(self, config_file, tmp_home):
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = tmp_home / "project"
+        # No settings dir, no .kanibako dir → default
+        mode = detect_project_mode(project_dir.resolve(), std, config)
+        assert mode is ProjectMode.account_centric
+
+    def test_account_centric_takes_priority_over_decentralized(
+        self, config_file, tmp_home, credentials_dir
+    ):
+        """When both settings/{hash}/ and .kanibako exist, account-centric wins."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = tmp_home / "project"
+        resolve_project(std, config, project_dir=str(project_dir), initialize=True)
+        (project_dir / ".kanibako").mkdir(exist_ok=True)
+
+        mode = detect_project_mode(project_dir.resolve(), std, config)
+        assert mode is ProjectMode.account_centric
+
+    def test_dot_kanibako_file_not_dir_is_not_decentralized(self, config_file, tmp_home):
+        """A .kanibako *file* (not directory) should not trigger decentralized mode."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+        project_dir = tmp_home / "project"
+        (project_dir / ".kanibako").write_text("not a directory")
+
+        mode = detect_project_mode(project_dir.resolve(), std, config)
+        assert mode is ProjectMode.account_centric
+
+    def test_workset_when_inside_workspaces_dir(self, config_file, tmp_home):
+        """Project inside a registered workset's workspaces/ → workset mode."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+
+        from kanibako.workset import create_workset
+        ws_root = tmp_home / "worksets" / "my-set"
+        create_workset("my-set", ws_root, std)
+
+        # Create a project dir inside the workset's workspaces/
+        proj_dir = ws_root.resolve() / "workspaces" / "my-proj"
+        proj_dir.mkdir(parents=True)
+
+        mode = detect_project_mode(proj_dir, std, config)
+        assert mode is ProjectMode.workset
+
+    def test_workset_takes_priority_over_all(self, config_file, tmp_home, credentials_dir):
+        """Workset detection (step 1) beats account-centric (step 2)."""
+        config = load_config(config_file)
+        std = load_std_paths(config)
+
+        from kanibako.workset import create_workset
+        ws_root = tmp_home / "worksets" / "my-set"
+        create_workset("my-set", ws_root, std)
+
+        proj_dir = ws_root.resolve() / "workspaces" / "my-proj"
+        proj_dir.mkdir(parents=True)
+        # Also create account-centric settings for the same path
+        resolve_project(std, config, project_dir=str(proj_dir), initialize=True)
+
+        mode = detect_project_mode(proj_dir, std, config)
+        assert mode is ProjectMode.workset
