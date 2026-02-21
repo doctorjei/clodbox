@@ -7,10 +7,14 @@ import shutil
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from kanibako.config import KanibakoConfig, load_config
-from kanibako.errors import ConfigError, ProjectError
+from kanibako.errors import ConfigError, ProjectError, WorksetError
 from kanibako.utils import project_hash
+
+if TYPE_CHECKING:
+    from kanibako.workset import Workset
 
 
 class ProjectMode(Enum):
@@ -284,6 +288,109 @@ def detect_project_mode(
 
     # 4. Default for new projects
     return ProjectMode.account_centric
+
+
+def resolve_workset_project(
+    ws: Workset,
+    project_name: str,
+    std: StandardPaths,
+    config: KanibakoConfig,
+    *,
+    initialize: bool = False,
+) -> ProjectPaths:
+    """Resolve per-project paths for a project inside a workset.
+
+    Raises ``WorksetError`` if *project_name* is not registered in *ws*.
+    """
+    # Look up project in workset.
+    found = None
+    for p in ws.projects:
+        if p.name == project_name:
+            found = p
+            break
+    if found is None:
+        raise WorksetError(
+            f"Project '{project_name}' not found in workset '{ws.name}'."
+        )
+
+    # Name-based paths (not hash-based).
+    project_path = ws.workspaces_dir / project_name
+    settings_path = ws.settings_dir / project_name
+    dot_path = settings_path / config.paths_dot_path
+    cfg_file = settings_path / config.paths_cfg_file
+    shell_path = ws.shell_dir / project_name
+    vault_ro_path = ws.vault_dir / project_name / "share-ro"
+    vault_rw_path = ws.vault_dir / project_name / "share-rw"
+
+    # Hash the resolved workspace path for container naming.
+    phash = project_hash(str(project_path.resolve()))
+
+    is_new = False
+    if initialize and not dot_path.is_dir():
+        _init_workset_project(std, settings_path, dot_path, cfg_file, shell_path)
+        is_new = True
+
+    if initialize:
+        # Recovery: ensure dot_path exists even if settings_path was present.
+        if not dot_path.is_dir():
+            dot_path.mkdir(parents=True, exist_ok=True)
+        if not cfg_file.exists():
+            cfg_file.touch()
+        if not shell_path.is_dir():
+            shell_path.mkdir(parents=True, exist_ok=True)
+            _bootstrap_shell(shell_path)
+
+    return ProjectPaths(
+        project_path=project_path,
+        project_hash=phash,
+        settings_path=settings_path,
+        dot_path=dot_path,
+        cfg_file=cfg_file,
+        shell_path=shell_path,
+        vault_ro_path=vault_ro_path,
+        vault_rw_path=vault_rw_path,
+        is_new=is_new,
+        mode=ProjectMode.workset,
+    )
+
+
+def _init_workset_project(
+    std: StandardPaths,
+    settings_path: Path,
+    dot_path: Path,
+    cfg_file: Path,
+    shell_path: Path,
+) -> None:
+    """First-time workset project setup: copy credentials and bootstrap shell.
+
+    Unlike ``_init_project``, this does not write a ``project-path.txt``
+    breadcrumb (workset.toml already records source_path) and does not create
+    vault ``.gitignore`` files (vault lives under the workset root, not inside
+    a user git repo).
+    """
+    import sys
+
+    print(
+        f"[One Time Setup] Initializing workset project in {settings_path}... ",
+        end="",
+        flush=True,
+        file=sys.stderr,
+    )
+    settings_path.mkdir(parents=True, exist_ok=True)
+
+    # Copy credential template tree into project settings.
+    creds = std.credentials_path
+    if creds.is_dir():
+        shutil.copytree(str(creds), str(settings_path), dirs_exist_ok=True)
+    else:
+        dot_path.mkdir(parents=True, exist_ok=True)
+        cfg_file.touch()
+
+    # Persistent agent home (shell).
+    shell_path.mkdir(parents=True, exist_ok=True)
+    _bootstrap_shell(shell_path)
+
+    print("done.", file=sys.stderr)
 
 
 def iter_projects(std: StandardPaths, config: KanibakoConfig) -> list[tuple[Path, Path | None]]:
