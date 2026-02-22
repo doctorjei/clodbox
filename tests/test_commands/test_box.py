@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import shutil
 
-import pytest
 
 from kanibako.config import load_config
 from kanibako.paths import load_std_paths, resolve_decentralized_project, resolve_project, resolve_workset_project
@@ -768,7 +767,7 @@ class TestBoxConvert:
 
         project_dir = tmp_home / "conv_vault"
         project_dir.mkdir()
-        proj = resolve_project(std, config, project_dir=str(project_dir), initialize=True)
+        resolve_project(std, config, project_dir=str(project_dir), initialize=True)
 
         # vault/ should already exist from AC init. Remove the gitignore to test creation.
         vault_gitignore = project_dir / "vault" / ".gitignore"
@@ -1316,8 +1315,7 @@ class TestBoxConvertFromWorkset:
         rc = run_migrate(args)
         assert rc == 0
 
-        # AC layout at source_path
-        source_path = proj.project_path  # workspaces/ws-proj
+        # AC layout at dest_path
         dest_path = tmp_home / "ws-proj_src"
         # The source_path recorded in the workset project is used as dest
         phash = project_hash(str(dest_path))

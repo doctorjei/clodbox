@@ -9,7 +9,6 @@ from kanibako.config import load_config
 from kanibako.paths import xdg, load_std_paths, resolve_any_project
 from kanibako.snapshots import (
     _DEFAULT_MAX_SNAPSHOTS,
-    auto_snapshot,
     create_snapshot,
     list_snapshots,
     prune_snapshots,
@@ -159,8 +158,9 @@ def run_prune(args: argparse.Namespace) -> int:
 
 def _human_size(nbytes: int) -> str:
     """Format byte count as human-readable string."""
+    size = float(nbytes)
     for unit in ("B", "KB", "MB", "GB"):
-        if nbytes < 1024:
-            return f"{nbytes:.0f}{unit}" if unit == "B" else f"{nbytes:.1f}{unit}"
-        nbytes /= 1024
-    return f"{nbytes:.1f}TB"
+        if size < 1024:
+            return f"{size:.0f}{unit}" if unit == "B" else f"{size:.1f}{unit}"
+        size /= 1024
+    return f"{size:.1f}TB"

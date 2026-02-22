@@ -9,7 +9,6 @@ Run with::
 from __future__ import annotations
 
 import argparse
-import json
 import subprocess
 import tarfile
 import tempfile

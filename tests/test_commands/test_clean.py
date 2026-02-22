@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from unittest.mock import patch
 
-import pytest
 
 from kanibako.config import load_config
 from kanibako.paths import load_std_paths, resolve_project, resolve_workset_project

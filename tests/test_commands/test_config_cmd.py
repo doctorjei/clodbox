@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 
 import pytest
 
@@ -12,7 +11,6 @@ from unittest.mock import patch
 from kanibako.config import (
     KanibakoConfig,
     load_config,
-    write_global_config,
     write_project_config,
     write_project_config_key,
     load_project_overrides,
@@ -31,7 +29,7 @@ class TestConfigGet:
         from kanibako.paths import load_std_paths, resolve_project
         std = load_std_paths(config)
         project_dir = str(tmp_home / "project")
-        proj = resolve_project(std, config, project_dir=project_dir, initialize=True)
+        resolve_project(std, config, project_dir=project_dir, initialize=True)
 
         args = argparse.Namespace(
             key="image", value=None, show=False, clear=False, unset=None,

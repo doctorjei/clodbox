@@ -93,7 +93,7 @@ def run_migrate(args: argparse.Namespace) -> int:
 
     # Confirm with user.
     if not args.force:
-        print(f"Migrate project data:")
+        print("Migrate project data:")
         print(f"  from: {old_path}")
         print(f"    to: {new_path}")
         print()
@@ -110,7 +110,7 @@ def run_migrate(args: argparse.Namespace) -> int:
     breadcrumb = new_project_dir / "project-path.txt"
     breadcrumb.write_text(str(new_path) + "\n")
 
-    print(f"Migrated project data:")
+    print("Migrated project data:")
     print(f"  from: {old_path} ({short_hash(old_hash)})")
     print(f"    to: {new_path} ({short_hash(new_hash)})")
     return 0
@@ -365,7 +365,7 @@ def _convert_to_workset(args, std, config) -> int:
     if src_proj.shell_path.is_dir():
         shutil.rmtree(src_proj.shell_path)
 
-    print(f"Converted project to workset mode:")
+    print("Converted project to workset mode:")
     print(f"  workset: {ws_name}/{proj_name}")
     return 0
 

@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import argparse
-import os
-import shutil
 import subprocess
 import sys
-from pathlib import Path
 
 from kanibako.config import (
     KanibakoConfig,
@@ -16,7 +13,6 @@ from kanibako.config import (
 )
 from kanibako.container import ContainerRuntime
 from kanibako.containerfiles import get_containerfile
-from kanibako.errors import ContainerError
 from kanibako.paths import xdg
 
 

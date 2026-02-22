@@ -8,14 +8,12 @@ container runtimes, real git repos, and real filesystem operations.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
-from pathlib import Path
 
 import pytest
 
-from kanibako.config import KanibakoConfig, write_global_config
+from kanibako.config import write_global_config
 
 # ---------------------------------------------------------------------------
 # Constants

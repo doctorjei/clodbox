@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from kanibako.config import load_config
-from kanibako.errors import ArchiveError, GitError
+from kanibako.errors import GitError
 from kanibako.git import check_uncommitted, check_unpushed, get_metadata, is_git_repo
 from kanibako.paths import xdg, load_std_paths, resolve_any_project
 from kanibako.utils import short_hash

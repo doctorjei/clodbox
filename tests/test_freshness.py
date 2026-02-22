@@ -6,7 +6,6 @@ import json
 import time
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from kanibako.freshness import check_image_freshness, _cached_remote_digest
 

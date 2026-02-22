@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 
 from kanibako.errors import WorksetError
 from kanibako.workset import (
-    Workset,
-    WorksetProject,
     add_project,
     create_workset,
     delete_workset,

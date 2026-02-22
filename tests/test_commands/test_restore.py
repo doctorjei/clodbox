@@ -5,10 +5,8 @@ from __future__ import annotations
 import argparse
 import shutil
 import tarfile
-from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from kanibako.config import load_config
 from kanibako.errors import UserCancelled
@@ -147,7 +145,7 @@ class TestRestoreExtended:
 
         # The archive has git metadata. Current HEAD may differ.
         # We patch _validate_git_state to simulate a mismatch prompt
-        with patch("kanibako.commands.restore.confirm_prompt") as m_prompt:
+        with patch("kanibako.commands.restore.confirm_prompt"):
             args = argparse.Namespace(
                 path=project_dir, file=archive_path, all_archives=False, force=False,
             )
@@ -211,7 +209,7 @@ class TestRestoreExtended:
         import lzma
         with lzma.open(str(empty_archive), "wb") as f:
             # Write a valid but empty tar
-            with tarfile.open(fileobj=f, mode="w:") as tar:
+            with tarfile.open(fileobj=f, mode="w:"):
                 pass
 
         args = argparse.Namespace(

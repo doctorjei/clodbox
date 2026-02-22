@@ -146,8 +146,8 @@ def run_list(args: argparse.Namespace) -> int:
         rows.append((name, count, str(root)))
 
     print(f"{'NAME':<20} {'PROJECTS':>8}  {'ROOT'}")
-    for name, count, root in rows:
-        print(f"{name:<20} {count:>8}  {root}")
+    for ws_name, ws_count, ws_root in rows:
+        print(f"{ws_name:<20} {ws_count:>8}  {ws_root}")
     return 0
 
 

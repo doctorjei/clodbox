@@ -248,7 +248,7 @@ def _duplicate_to_workset(args, std, config) -> int:
             ignore = shutil.ignore_patterns(".kanibako")
         shutil.copytree(source_path, dst_workspace, ignore=ignore, dirs_exist_ok=True)
 
-    print(f"Duplicated project to workset:")
+    print("Duplicated project to workset:")
     print(f"  from:    {source_path}")
     print(f"  workset: {ws_name}/{proj_name}")
     return 0
@@ -403,7 +403,7 @@ def run_duplicate(args: argparse.Namespace) -> int:
     breadcrumb = new_project_dir / "project-path.txt"
     breadcrumb.write_text(str(new_path) + "\n")
 
-    print(f"Duplicated project:")
+    print("Duplicated project:")
     print(f"  from: {source_path} ({short_hash(source_hash)})")
     print(f"    to: {new_path} ({short_hash(new_hash)})")
     return 0

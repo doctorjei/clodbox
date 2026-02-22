@@ -7,7 +7,7 @@ import sys
 
 from kanibako.config import load_config
 from kanibako.paths import xdg, load_std_paths, resolve_any_project
-from kanibako.shellenv import merge_env, read_env_file, set_env_var, unset_env_var
+from kanibako.shellenv import merge_env, set_env_var, unset_env_var
 
 
 def add_parser(subparsers: argparse._SubParsersAction) -> None:

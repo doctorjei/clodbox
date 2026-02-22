@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from unittest.mock import patch
 
-import pytest
 
 from kanibako.cli import build_parser
 from kanibako.commands.vault_cmd import (

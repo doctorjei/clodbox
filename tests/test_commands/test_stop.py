@@ -103,8 +103,7 @@ class TestStopAll:
         assert rc == 0
         out = capsys.readouterr().out
         assert "Stopped 1 container(s)" in out
-        err = capsys.readouterr().err
-        # stderr captured on first readouterr call above
+        capsys.readouterr()  # drain stderr
 
 
 class TestRunDispatch:

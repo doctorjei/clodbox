@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path
 
 from kanibako.config import load_config
 from kanibako.paths import xdg

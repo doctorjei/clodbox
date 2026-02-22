@@ -6,7 +6,6 @@ import argparse
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from kanibako.commands.image import _extract_ghcr_owner, _list_remote_packages
 from kanibako.config import load_config

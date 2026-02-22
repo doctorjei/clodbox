@@ -6,7 +6,6 @@ import argparse
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-import pytest
 
 from kanibako.commands.upgrade import run, _get_repo_dir
 

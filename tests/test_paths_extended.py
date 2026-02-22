@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 
 import pytest
 
-from kanibako.config import KanibakoConfig, load_config, write_global_config
-from kanibako.errors import ConfigError, ProjectError
+from kanibako.config import load_config
+from kanibako.errors import ConfigError
 from kanibako.paths import ProjectMode, load_std_paths, resolve_project
 
 

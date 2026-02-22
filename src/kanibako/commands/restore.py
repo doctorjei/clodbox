@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 from kanibako.config import load_config
-from kanibako.errors import ArchiveError, UserCancelled
+from kanibako.errors import UserCancelled
 from kanibako.git import is_git_repo
 from kanibako.paths import xdg, load_std_paths, resolve_any_project
 from kanibako.utils import confirm_prompt

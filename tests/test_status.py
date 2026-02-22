@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import argparse
-import json
 import time
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -17,9 +15,9 @@ from kanibako.commands.status import (
     _format_credential_age,
     run_status,
 )
-from kanibako.config import KanibakoConfig, load_config
+from kanibako.config import load_config
 from kanibako.errors import ContainerError
-from kanibako.paths import ProjectMode, load_std_paths, resolve_project
+from kanibako.paths import load_std_paths, resolve_project
 
 
 # ---------------------------------------------------------------------------
@@ -313,7 +311,7 @@ class TestRunStatusDecentralized:
         std = load_std_paths(config)
         project_dir = str(tmp_home / "project")
 
-        proj = resolve_decentralized_project(
+        resolve_decentralized_project(
             std, config, project_dir=project_dir, initialize=True,
         )
         args = argparse.Namespace(project=project_dir)

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from kanibako.config import KanibakoConfig, load_config
+from kanibako.config import load_config
 from kanibako.errors import ConfigError, ProjectError, WorksetError
 from kanibako.paths import (
     ProjectLayout,

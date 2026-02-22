@@ -8,13 +8,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from kanibako.config import KanibakoConfig, load_config, load_merged_config
+from kanibako.config import load_config, load_merged_config
 from kanibako.container import ContainerRuntime
 from kanibako.errors import ContainerError, ProjectError
 from kanibako.paths import (
     ProjectMode,
     xdg,
-    detect_project_mode,
     load_std_paths,
     resolve_any_project,
 )

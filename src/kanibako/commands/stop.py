@@ -57,7 +57,7 @@ def _stop_one(runtime: ContainerRuntime, *, project_dir: str | None) -> int:
         print(f"Stopped {container_name}")
     else:
         print(f"No running container found for this project ({container_name})")
-        print(f"\nIf a stale lock file is blocking a new session, remove it manually:")
+        print("\nIf a stale lock file is blocking a new session, remove it manually:")
         print(f"  rm {lock_file}")
 
     return 0

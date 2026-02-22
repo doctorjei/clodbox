@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import fcntl
 import sys
-from pathlib import Path
 
 from kanibako.config import load_config, load_merged_config
 from kanibako.container import ContainerRuntime

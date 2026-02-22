@@ -206,6 +206,6 @@ def run_info(args: argparse.Namespace) -> int:
     if lock_file.exists():
         print(f"Lock:      ACTIVE ({lock_file})")
     else:
-        print(f"Lock:      none")
+        print("Lock:      none")
 
     return 0

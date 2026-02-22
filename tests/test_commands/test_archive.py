@@ -5,12 +5,9 @@ from __future__ import annotations
 import argparse
 import tarfile
 from pathlib import Path
-from unittest.mock import patch
 
-import pytest
 
-from kanibako.config import load_config, write_global_config
-from kanibako.errors import GitError
+from kanibako.config import load_config
 from kanibako.paths import load_std_paths, resolve_project, resolve_workset_project
 from kanibako.workset import add_project, create_workset
 
@@ -209,7 +206,7 @@ class TestArchiveExtended:
         from kanibako.commands.archive import run
 
         config = load_config(config_file)
-        std = load_std_paths(config)
+        load_std_paths(config)
         project_dir = tmp_home / "project"
         # Create decentralized marker and some data
         kanibako_dir = project_dir / ".kanibako"

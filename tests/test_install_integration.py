@@ -9,12 +9,9 @@ and settings filtering.  Run with::
 from __future__ import annotations
 
 import json
-import shutil
-import subprocess
 
 import pytest
 
-from tests.conftest_integration import requires_crontab
 
 
 @pytest.mark.integration
@@ -40,7 +37,7 @@ class TestInstallFilesystem:
         self, integration_home, integration_config
     ):
         """Running install twice is idempotent — existing config untouched."""
-        from kanibako.config import KanibakoConfig, load_config, write_global_config
+        from kanibako.config import load_config, write_global_config
 
         # Write a config with a custom image
         config = load_config(integration_config)

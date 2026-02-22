@@ -3,18 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import os
-from pathlib import Path
-from unittest.mock import patch
 
-import pytest
 
 from kanibako.config import load_config
 from kanibako.paths import load_std_paths
 from kanibako.workset import (
     add_project,
     create_workset,
-    load_workset,
 )
 
 

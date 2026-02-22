@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from kanibako.targets.base import AgentInstall
 from kanibako.targets.claude import ClaudeTarget

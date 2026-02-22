@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
 
-import pytest
 
 from kanibako.commands.start import _run_container
 

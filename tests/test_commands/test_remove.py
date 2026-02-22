@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from kanibako.config import write_global_config
 

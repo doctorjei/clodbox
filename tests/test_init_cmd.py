@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from kanibako.cli import _SUBCOMMANDS, build_parser
 from kanibako.commands.init import run_init, run_new
